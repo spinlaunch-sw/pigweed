@@ -28,9 +28,8 @@
 namespace pw::rpc::system_server {
 namespace {
 
-// Hard-coded to 1055 bytes, which is enough to fit 512-byte payloads when using
-// HDLC framing.
-constexpr size_t kMaxTransmissionUnit = 1055;
+// TODO: make configurable
+constexpr size_t kMaxTransmissionUnit = 10000;
 
 static_assert(kMaxTransmissionUnit ==
               hdlc::MaxEncodedFrameSize(rpc::cfg::kEncodingBufferSizeBytes));
