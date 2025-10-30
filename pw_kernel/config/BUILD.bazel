@@ -25,6 +25,9 @@ rust_library(
     crate_name = "kernel_config",
     edition = "2024",
     tags = ["kernel"],
+    deps = [
+        "//pw_kernel/lib/memory_config",
+    ],
 )
 
 label_flag(

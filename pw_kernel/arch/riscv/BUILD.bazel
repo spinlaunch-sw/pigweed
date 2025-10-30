@@ -12,10 +12,23 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library")
 load("//pw_kernel:flags.bzl", "KERNEL_TEST_DEPS", "KERNEL_TEST_RUSTC_FLAGS")
 
 package(default_visibility = ["//visibility:public"])
+
+bool_flag(
+    name = "exceptions_reload_pmp",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "exceptions_reload_pmp_enabled",
+    flag_values = {
+        ":exceptions_reload_pmp": "true",
+    },
+)
 
 rust_library(
     name = "arch_riscv",
@@ -41,6 +54,9 @@ rust_library(
         "//pw_build/constraints/riscv/extensions:Smepmp": ["epmp"],
         "//conditions:default": [],
     }) + select({
+        ":exceptions_reload_pmp_enabled": ["exceptions_reload_pmp"],
+        "//conditions:default": [],
+    }) + select({
         "//pw_build/constraints/riscv/extensions:A.not": ["disable_interrupts_atomic"],
         "//conditions:default": [],
     }),
@@ -61,6 +77,7 @@ rust_library(
         "//pw_kernel/lib/foreign_box",
         "//pw_kernel/lib/list",
         "//pw_kernel/lib/log_if",
+        "//pw_kernel/lib/memory_config",
         "//pw_kernel/lib/pw_assert",
         "//pw_kernel/lib/pw_atomic",
         "//pw_kernel/lib/pw_cast",
