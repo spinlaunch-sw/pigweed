@@ -34,16 +34,13 @@ class InterruptSafeUartWriterMcuxpresso : public pw::stream::NonSeekableWriter {
       uintptr_t base,
       clock_name_t clock_name,
       unsigned int baudrate,
+      bool flow_control,
       pw::clock_tree::Element& clock_tree_element)
       : base_(base),
         baudrate_(baudrate),
+        flow_control_(flow_control),
         clock_tree_element_(clock_tree_element),
         clock_name_(clock_name) {}
-
-  constexpr InterruptSafeUartWriterMcuxpresso(uintptr_t base,
-                                              clock_name_t clock_name,
-                                              unsigned int baudrate)
-      : base_(base), baudrate_(baudrate), clock_name_(clock_name) {}
 
   // Initialize uart to known good state. Can be used on UART that was already
   // used by another driver to enable use in fault handler context.
@@ -55,6 +52,7 @@ class InterruptSafeUartWriterMcuxpresso : public pw::stream::NonSeekableWriter {
 
   const uintptr_t base_;
   const unsigned int baudrate_;
+  const bool flow_control_;
   pw::clock_tree::OptionalElement clock_tree_element_;
   const clock_name_t clock_name_;
 };

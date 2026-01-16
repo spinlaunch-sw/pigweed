@@ -14,7 +14,6 @@
 
 #pragma once
 
-#include "pw_bluetooth_sapphire/internal/host/common/bidirectional_multimap.h"
 #include "pw_bluetooth_sapphire/internal/host/hci/discovery_filter.h"
 #include "pw_bluetooth_sapphire/internal/host/hci/sequential_command_runner.h"
 #include "pw_bluetooth_sapphire/internal/host/transport/transport.h"
@@ -24,18 +23,19 @@ namespace bt::hci {
 class AdvertisingPacketFilter {
  public:
   // Some Controllers support offloaded packet filtering (e.g. in Android vendor
-  // extensions). PacketFilterConfig allows us to switch on whether this feature
-  // is enabled for the current Controller or not.
+  // extensions). PacketFilterConfig allows us to switch offloaded packet
+  // filtering on if this feature is enabled for the current Controller or not.
   class Config {
    public:
-    Config(bool offloading_enabled, uint8_t max_filters)
-        : offloading_enabled_(offloading_enabled), max_filters_(max_filters) {}
+    Config(bool offloading_supported, uint8_t max_filters)
+        : offloading_supported_(offloading_supported),
+          max_filters_(max_filters) {}
 
-    bool offloading_enabled() const { return offloading_enabled_; }
+    bool offloading_supported() const { return offloading_supported_; }
     uint8_t max_filters() const { return max_filters_; }
 
    private:
-    bool offloading_enabled_ = false;
+    bool offloading_supported_ = false;
     uint8_t max_filters_ = 0;
   };
 
@@ -44,33 +44,51 @@ class AdvertisingPacketFilter {
 
   AdvertisingPacketFilter(const Config& config, Transport::WeakPtr hci);
 
+  // Set the packet filters for a given scan id. If offloading is supported and
+  // the Controller has memory available (for all currently configured filters,
+  // including the one being added), this method will offload the filters being
+  // added. Conversely, if the Controller doesn't have memory available for all
+  // filters, offloaded filtering will be disabled and we will gracefully fall
+  // back to Host level filtering.
   void SetPacketFilters(ScanId scan_id,
                         const std::vector<DiscoveryFilter>& filters);
 
-  void UnsetPacketFilters(ScanId scan_id) {
-    UnsetPacketFiltersInternal(scan_id, true);
-  }
+  // Remove the packet filters for a given scan id. If offloading is currently
+  // in use, this method will remove filters from the Controller configuration
+  // as well. Conversely, if offloading isn't in use and, by removing this scan
+  // id's filters, we can now push all filters onto the Controller, this method
+  // may re-enable offloaded packet filtering.
+  void UnsetPacketFilters(ScanId scan_id);
 
+  // Obtain the set of scan ids that have filters that match a particular peer
   std::unordered_set<ScanId> Matches(const AdvertisingData::ParseResult& ad,
                                      bool connectable,
                                      int8_t rssi) const;
 
+  // Determine whether a particular scan id's filters match a given peer
   bool Matches(ScanId scan_id,
                const AdvertisingData::ParseResult& ad,
                bool connectable,
                int8_t rssi) const;
 
-  bool IsOffloadedFilteringEnabled() const {
-    return offloaded_filtering_enabled_;
+  bool IsUsingOffloadedFiltering() const {
+    return filtering_state_ == FilteringState::kOffloadedFiltering;
   }
 
-  const std::unordered_set<ScanId>& scan_ids() const { return scan_ids_; }
+  // Returns the number of scan ids currently registered. This method is only
+  // used for testing.
+  size_t NumScanIds() const { return scan_id_to_filters_.size(); }
 
-  // Returns the last filter index that was used. This method is primarily used
-  // for testing.
+  // Returns the last filter index that was used. This method is only used for
+  // testing.
   FilterIndex last_filter_index() const { return last_filter_index_; }
 
  private:
+  enum class FilteringState {
+    kHostFiltering,
+    kOffloadedFiltering,
+  };
+
   enum class OffloadedFilterType {
     kServiceUUID,
     kServiceDataUUID,
@@ -79,6 +97,13 @@ class AdvertisingPacketFilter {
     kManufacturerCode,
   };
 
+  // Remove the packet filters for a given scan id. If offloading is currently
+  // in use, this method will remove filters from the Controller configuration
+  // as well.
+  //
+  // Importantly, this method will not check whether we can now push all
+  // remaining filters onto the Controller. Even if so, it will not re-enable
+  // offloaded packet filtering in the Controller.
   void UnsetPacketFiltersInternal(ScanId scan_id, bool run_commands);
 
   // Generate the next valid, available, and within range FilterIndex.
@@ -130,6 +155,12 @@ class AdvertisingPacketFilter {
   // Reset the number of open slots of Controller memory per filter type we
   // track to the default value.
   void ResetOpenSlots();
+
+  // Returns the number of filter indexes currently in use
+  size_t NumFilterIndexesInUse() const;
+
+  // Returns whether we are already using a particular filter index or not
+  bool IsFilterIndexInUse(FilterIndex filter_index) const;
 
   CommandPacket BuildEnableCommand(bool enabled) const;
 
@@ -190,8 +221,9 @@ class AdvertisingPacketFilter {
   // available filter index.
   FilterIndex last_filter_index_ = kStartFilterIndex;
 
-  // Tracks whether we are currently using Controller offloaded filtering.
-  bool offloaded_filtering_enabled_ = false;
+  // Tracks whether we are currently using Host filtering or Controller
+  // offloaded filtering.
+  FilteringState filtering_state_ = FilteringState::kHostFiltering;
 
   // Packet filter configuration that controls how this class behaves
   // (e.g. Controller offloading enabled, etc).
@@ -202,9 +234,6 @@ class AdvertisingPacketFilter {
   // within the Controller.
   std::unordered_map<OffloadedFilterType, uint8_t> open_slots_;
 
-  // The total set of scan ids being tracked.
-  std::unordered_set<ScanId> scan_ids_;
-
   // Filters associated with a particular upper layer scan session with a given
   // scan id. These filters may be offloaded to the Controller if Controller
   // offloading is supported. If not, or if the Controller memory is full, they
@@ -213,7 +242,7 @@ class AdvertisingPacketFilter {
 
   // Map between a scan id and the indexes of its filters offloaded to the
   // Controller.
-  BidirectionalMultimap<ScanId, FilterIndex> scan_id_to_index_;
+  std::unordered_map<ScanId, std::unordered_set<FilterIndex>> scan_id_to_index_;
 
   // The HCI transport.
   Transport::WeakPtr hci_;

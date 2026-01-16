@@ -14,15 +14,10 @@ toolchain management. Try building the ``blinky`` bringup app now:
    .. tab-item:: VS Code
       :sync: vsc
 
-      .. admonition:: Known issue
-
-         Compile commands generation is not working.
-         See :bug:`419310666` for updates.
-
       #. In **Bazel Targets** right-click the **//apps/blinky** folder
          and select **Build Package Recursively**.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/build_package_recursively_v4.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/build_package_recursively_v4.png
 
          A `task`_ launches in a VS Code terminal.
          Bazel builds all targets that it finds within the ``//apps/blinky``

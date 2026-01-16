@@ -17,6 +17,9 @@
 #include <cstdint>
 #include <limits>
 
+#include "pw_allocator/deallocator.h"
+#include "pw_allocator/internal/control_block.h"
+
 namespace pw::multibuf::internal {
 
 /// Describes either a memory location or a view of an associated location.
@@ -39,10 +42,59 @@ union Entry {
   /// Offset and length must fit in 15 bits.
   static constexpr size_t kMaxSize = ~(1U << 15);
 
+  /// Per-chunk index entry that holds the deallocator or control block.
+  static constexpr size_type kMemoryContextIndex = 0;
+
+  /// Per-chunk index entry that holds the data pointer.
+  static constexpr size_type kDataIndex = 1;
+
+  /// Per-chunk index entry that holds the base view of the data.
+  static constexpr size_type kBaseViewIndex = 2;
+
+  /// Minimum number of entries per chunk.
+  static constexpr size_type kMinEntriesPerChunk = 3;
+
+  /// Returns the index to the data entry of a given chunk.
+  static constexpr size_type memory_context_index(size_type chunk,
+                                                  size_type entries_per_chunk) {
+    return chunk * entries_per_chunk + kMemoryContextIndex;
+  }
+
+  /// Returns the index to the data entry of a given chunk.
+  static constexpr size_type data_index(size_type chunk,
+                                        size_type entries_per_chunk) {
+    return chunk * entries_per_chunk + kDataIndex;
+  }
+
+  /// Returns the index to the base view entry of a given chunk.
+  static constexpr size_type base_view_index(size_type chunk,
+                                             size_type entries_per_chunk) {
+    return chunk * entries_per_chunk + kBaseViewIndex;
+  }
+
+  /// Returns the index to a view entry of a given chunk.
+  static constexpr size_type view_index(size_type chunk,
+                                        size_type entries_per_chunk,
+                                        size_type layer) {
+    return chunk * entries_per_chunk + kBaseViewIndex + layer - 1;
+  }
+
+  /// Returns the index to the top view entry of a given chunk.
+  static constexpr size_type top_view_index(size_type chunk,
+                                            size_type entries_per_chunk) {
+    return (chunk + 1) * entries_per_chunk - 1;
+  }
+
+  /// Optional deallocator involved in freeing owned memory.
+  Deallocator* deallocator;
+
+  /// Optional control block involved in freeing shared memory.
+  allocator::internal::ControlBlock* control_block;
+
   /// Pointer to memory.
   std::byte* data;
 
-  /// The first entry after the data
+  /// Describes the entire memory region.
   struct BaseView {
     /// Starting offset within the buffer of the data to present.
     size_type offset : 15;
@@ -59,8 +111,8 @@ union Entry {
     size_type shared : 1;
   } base_view;
 
-  /// Each of the `depth - 2` subsequent entries describe the view of that data
-  /// that makes up part of a MultiBuf "layer".
+  /// Subsequent entries describe the view of that data that makes up part of a
+  /// MultiBuf "layer".
   struct View {
     /// Starting offset within the buffer of the data to present.
     size_type offset : 15;

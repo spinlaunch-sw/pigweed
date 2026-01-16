@@ -16,15 +16,20 @@
 
 #include "public/pw_async2/size_report/size_report.h"
 #include "pw_assert/check.h"
+#include "pw_async2/basic_dispatcher.h"
 #include "pw_async2/dispatcher.h"
+#include "pw_async2/pend_func_task.h"
 #include "pw_async2/pendable.h"
 #include "pw_async2/size_report/size_report.h"
 #include "pw_bloat/bloat_this_binary.h"
 #include "pw_log/log.h"
 
 namespace pw::async2::size_report {
+namespace {
 
-static Dispatcher dispatcher;
+BasicDispatcher dispatcher;
+
+}
 
 #ifdef _PW_ASYNC2_SIZE_REPORT_SELECT
 
@@ -35,7 +40,13 @@ int SingleTypeSelect(uint32_t mask) {
   Selector selector(PendableFor<&PendableInt::Get>(value_1),
                     PendableFor<&PendableInt::Get>(value_2),
                     PendableFor<&PendableInt::Get>(value_3));
-  auto result = dispatcher.RunPendableUntilStalled(selector);
+  decltype(selector.Pend(std::declval<Context&>())) result = Pending();
+  PendFuncTask task([&](Context& cx) {
+    result = selector.Pend(cx);
+    return result.Readiness();
+  });
+  dispatcher.Post(task);
+  dispatcher.RunUntilStalled();
   PW_BLOAT_COND(result.IsReady(), mask);
 
   value_1.allow_completion = true;
@@ -68,7 +79,13 @@ int MultiTypeSelect(uint32_t mask) {
   Selector selector(PendableFor<&PendableInt::Get>(value_1),
                     PendableFor<&PendableUint::Get>(value_2),
                     PendableFor<&PendableChar::Get>(value_3));
-  auto result = dispatcher.RunPendableUntilStalled(selector);
+  decltype(selector.Pend(std::declval<Context&>())) result = Pending();
+  PendFuncTask task([&](Context& cx) {
+    result = selector.Pend(cx);
+    return result.Readiness();
+  });
+  dispatcher.Post(task);
+  dispatcher.RunUntilStalled();
   PW_BLOAT_COND(result.IsReady(), mask);
 
   value_3.allow_completion = true;
@@ -169,7 +186,7 @@ int Measure() {
   // Move the waker onto the stack to call its operator= before waking the task.
   Waker waker;
   PW_BLOAT_EXPR((waker = std::move(task.last_waker)), mask);
-  std::move(waker).Wake();
+  waker.Wake();
   dispatcher.RunToCompletion();
 
   int result = -1;
@@ -186,12 +203,16 @@ int Measure() {
 #if defined(_PW_ASYNC_2_SIZE_REPORT_COMPARE_SELECT_MANUAL) || \
     defined(_PW_ASYNC_2_SIZE_REPORT_COMPARE_SELECT_HELPER)
   PendableInt pendable_int(47);
-  auto pendable = PendableFor<&PendableInt::Get>(pendable_int);
-  dispatcher.RunPendableUntilStalled(pendable).IgnorePoll();
+  PendFuncTask task2(
+      [&](Context& cx) { return pendable_int.Get(cx).Readiness(); });
+  dispatcher.Post(task2);
+  dispatcher.RunUntilStalled();
 
   SelectComparison comparison;
-  auto select_result = dispatcher.RunPendableUntilStalled(comparison);
-  PW_BLOAT_COND(select_result.IsReady(), mask);
+  PendFuncTask task3(
+      [&](Context& cx) { return comparison.Pend(cx).Readiness(); });
+  dispatcher.Post(task3);
+  dispatcher.RunUntilStalled();
 #endif
 
   return result;

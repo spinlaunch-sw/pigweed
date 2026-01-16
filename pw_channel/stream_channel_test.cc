@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_bytes/suffix.h"
 #include "pw_multibuf/simple_allocator_for_test.h"
@@ -100,11 +101,12 @@ TEST(StreamChannel, ReadsAndWritesData) {
     return Ready();
   });
 
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
+  dispatcher.AllowBlocking();
   dispatcher.Post(write_task);
   dispatcher.Post(read_task);
 
-  EXPECT_EQ(Pending(), dispatcher.RunUntilStalled());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   std::array<const std::byte, 3> data_to_send({1_b, 2_b, 3_b});
   ASSERT_EQ(pw::OkStatus(),
             test_data->channel_input_writer.Write(data_to_send));

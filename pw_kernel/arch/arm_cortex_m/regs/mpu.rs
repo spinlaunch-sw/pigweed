@@ -98,6 +98,7 @@ pub enum RbarSh {
 #[repr(transparent)]
 pub struct RbarVal(pub u32);
 impl RbarVal {
+    #[must_use]
     pub const fn const_default() -> Self {
         Self(0)
     }
@@ -105,23 +106,33 @@ impl RbarVal {
     rw_bool_field!(u32, xn, 0, "execute-never");
 
     /// Extract access permissions field.
+    #[must_use]
     pub const fn ap(&self) -> RbarAp {
         // Safety: Value is masked to only contain valid enum values.
-        unsafe { core::mem::transmute(ops::get_u32(self.0, 1, 2) as u8) }
+        #[expect(clippy::cast_possible_truncation)]
+        unsafe {
+            core::mem::transmute(ops::get_u32(self.0, 1, 2) as u8)
+        }
     }
 
     /// Update access permissions field.
+    #[must_use]
     pub const fn with_ap(self, val: RbarAp) -> Self {
         Self(ops::set_u32(self.0, 1, 2, val as u32))
     }
 
     /// Extract shareability field.
+    #[must_use]
     pub const fn sh(&self) -> RbarSh {
         // Safety: Value is masked to only contain valid enum values.
-        unsafe { core::mem::transmute(ops::get_u32(self.0, 3, 4) as u8) }
+        #[expect(clippy::cast_possible_truncation)]
+        unsafe {
+            core::mem::transmute(ops::get_u32(self.0, 3, 4) as u8)
+        }
     }
 
     /// Update shareability field.
+    #[must_use]
     pub const fn with_sh(self, val: RbarSh) -> Self {
         Self(ops::set_u32(self.0, 3, 4, val as u32))
     }
@@ -140,6 +151,7 @@ rw_reg!(
 #[repr(transparent)]
 pub struct RlarVal(pub u32);
 impl RlarVal {
+    #[must_use]
     pub const fn const_default() -> Self {
         Self(0)
     }
@@ -160,18 +172,19 @@ rw_reg!(
 #[repr(u8)]
 pub enum MairDeviceMemoryOrdering {
     /// non-Gathering, non-Reordering, no Early Write acknowledgement.
-    #[allow(non_camel_case_types)]
+    #[expect(non_camel_case_types)]
     nGnRnE = 0b00,
 
     /// non-Gathering, non-Reordering, Early Write acknowledgement.
-    #[allow(non_camel_case_types)]
+    #[expect(non_camel_case_types)]
     nGnRE = 0b01,
 
     /// non-Gathering, Reordering, Early Write acknowledgement.
-    #[allow(non_camel_case_types)]
+    #[expect(non_camel_case_types)]
     nGRE = 0b10,
 
     /// Gathering, Reordering, Early Write acknowledgement.
+    #[expect(clippy::upper_case_acronyms)]
     GRE = 0b11,
 }
 
@@ -225,6 +238,7 @@ pub enum MairNormalMemoryCaching {
 pub struct MairAttr(u8);
 
 impl MairAttr {
+    #[must_use]
     pub const fn device_memory(ordering: MairDeviceMemoryOrdering) -> Self {
         // Value layout for device memory:
         // | 7     4 | 3     2 | 1  0 |
@@ -234,6 +248,7 @@ impl MairAttr {
         Self(ordering << 2)
     }
 
+    #[must_use]
     pub const fn normal_memory(
         inner: MairNormalMemoryCaching,
         outer: MairNormalMemoryCaching,
@@ -253,6 +268,7 @@ macro_rules! attr_field {
         #[doc = "Extract "]
         #[doc = $desc]
         #[doc = "field"]
+        #[expect(clippy::cast_possible_truncation)]
         pub const fn $name(&self) -> u8 {
             ops::get_u32(self.0, $start, $end) as u8
         }
@@ -260,6 +276,7 @@ macro_rules! attr_field {
             #[doc = "Update "]
             #[doc = $desc]
             #[doc = "field"]
+            #[must_use]
             pub const fn [<with_ $name>](&mut self, val: MairAttr) -> Self {
                 Self(ops::set_u32(self.0, $start, $end, val.0 as u32))
             }

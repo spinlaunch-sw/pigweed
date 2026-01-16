@@ -63,6 +63,7 @@ tools/bazel
 .mypy_cache/
 __pycache__/
 build/
+!docs/sphinx/build
 dist/
 
 # PyOxidizer
@@ -111,3 +112,6 @@ pw_console-device-logs.txt
 # AI files
 .aider*
 .gemini/logs.json
+
+# Docs
+docs/sphinx/changelog/*/*/dropped.rst

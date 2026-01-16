@@ -57,19 +57,6 @@ Get started
       Set up a C++-based Zephyr project, set up GitHub Actions,
       integrate Pigweed into an existing Bazel project, and more.
 
----------------------------------------------
-Pigweed SDK launches with Raspberry Pi RP2350
----------------------------------------------
-.. _Google Pigweed comes to our new RP2350: https://www.raspberrypi.com/news/google-pigweed-comes-to-our-new-rp2350/
-.. _Introducing the Pigweed SDK: https://opensource.googleblog.com/2024/08/introducing-pigweed-sdk.html
-
-The first preview release of the Pigweed SDK has launched with official
-hardware support for Raspberry Pi’s newest microprocessor products, the
-RP2350 and Pico 2! Check out the following blog posts to learn more:
-
-* `Google Pigweed comes to our new RP2350`_
-* `Introducing the Pigweed SDK`_
-
 ----------------
 What is Pigweed?
 ----------------
@@ -131,19 +118,10 @@ interacting with hardware devices via :ref:`module-pw_rpc` over a
 :ref:`module-pw_hdlc` transport. Gone are the days of hacking together a REPL
 and log viewer for each new project!
 
-.. figure:: https://storage.googleapis.com/pigweed-media/pw_console/python_completion.png
+.. figure:: https://www.gstatic.com/pigweed/pw_console/python_completion.png
    :alt: Using pw_console to interact with a device
 
    Using pw_console to interact with a device
-
-.. _docs-root-changelog:
-
----------------------
-What's new in Pigweed
----------------------
-.. include:: changelog.rst
-   :start-after: .. changelog_highlights_start
-   :end-before: .. changelog_highlights_end
 
 ----------
 Talk to us
@@ -191,7 +169,7 @@ Talk to us
    modules
    Contributing <contributing/index>
    concepts/index
-   build_system
+   build/index
    targets
    Toolchain <toolchain>
    size_optimizations
@@ -199,6 +177,5 @@ Talk to us
    third_party_support
    showcases/index
    community/index
-   What's new <changelog>
    Blog <blog/index>
    api/index

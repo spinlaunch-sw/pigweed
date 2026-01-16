@@ -16,25 +16,28 @@
 
 #include <variant>
 
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pendable.h"
 #include "pw_async2/poll.h"
 #include "pw_async2/value_future.h"
+#include "pw_unit_test/constexpr.h"
 #include "pw_unit_test/framework.h"
 
 namespace {
 
 using ::pw::async2::AllPendablesCompleted;
+using ::pw::async2::BroadcastValueProvider;
 using ::pw::async2::Context;
-using ::pw::async2::Dispatcher;
+using ::pw::async2::DispatcherForTest;
 using ::pw::async2::PendableFor;
 using ::pw::async2::Pending;
 using ::pw::async2::Poll;
+using ::pw::async2::Select;
+using ::pw::async2::SelectFuture;
 using ::pw::async2::Selector;
+using ::pw::async2::ValueFuture;
 using ::pw::async2::VisitSelectResult;
 using ::pw::async2::Waker;
-using ::pw::async2::experimental::BroadcastValueProvider;
-using ::pw::async2::experimental::Select;
 
 // Windows GCC emits a bogus uninitialized error for the
 // move constructor below.
@@ -105,57 +108,61 @@ void ExpectAllPendablesCompleted(ResultVariant& result_variant) {
   EXPECT_TRUE(std::holds_alternative<AllPendablesCompleted>(result_variant));
 }
 
+// TODO: b/457508399 - Remove non-future Selector.
+PW_MODIFY_DIAGNOSTICS_PUSH();
+PW_MODIFY_DIAGNOSTIC(ignored, "-Wdeprecated-declarations");
+
 TEST(Selector, OnePendable) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendableValue value(47);
   Selector selector(PendableFor<&PendableValue::Get>(value));
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
   value.allow_completion_ = true;
-  auto result = dispatcher.RunPendableUntilStalled(selector);
+  auto result = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result.IsReady());
   auto& result_variant = *result;
   ExpectVariantIs<0>(result_variant, 47);
 }
 
 TEST(Selector, DoesNotRepollAfterReady) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendableValue value(47);
   Selector selector(PendableFor<&PendableValue::Get>(value));
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
   EXPECT_EQ(value.poll_count_, 1);
 
   value.allow_completion_ = true;
-  EXPECT_TRUE(dispatcher.RunPendableUntilStalled(selector).IsReady());
+  EXPECT_TRUE(dispatcher.RunInTaskUntilStalled(selector).IsReady());
   EXPECT_EQ(value.poll_count_, 2);
 
   // After the selector returns Ready, it should not poll the pendable again.
-  auto result = dispatcher.RunPendableUntilStalled(selector);
+  auto result = dispatcher.RunInTaskUntilStalled(selector);
   EXPECT_EQ(value.poll_count_, 2);
   ASSERT_TRUE(result.IsReady());
   ExpectAllPendablesCompleted(*result);
 }
 
 TEST(Selector, MultiplePendables_OneReady) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendableValue value_1(47);
   PendableValue value_2(52);
   Selector selector(PendableFor<&PendableValue::Get>(value_1),
                     PendableFor<&PendableValue::Get>(value_2));
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
   value_2.allow_completion_ = true;
-  auto result = dispatcher.RunPendableUntilStalled(selector);
+  auto result = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result.IsReady());
   auto& result_variant = *result;
   ExpectVariantIs<1>(result_variant, 52);
 }
 
 TEST(Selector, MultiplePendables_PollLoop) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendableValue value_1(47);
   PendableValue value_2(52);
@@ -171,7 +178,7 @@ TEST(Selector, MultiplePendables_PollLoop) {
   while (!completed) {
     iterations++;
 
-    auto result = dispatcher.RunPendableUntilStalled(selector);
+    auto result = dispatcher.RunInTaskUntilStalled(selector);
     if (result.IsPending()) {
       FAIL();
       break;
@@ -196,7 +203,7 @@ TEST(Selector, MultiplePendables_PollLoop) {
 }
 
 TEST(Selector, MultiplePendables_AllReady) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendableValue value_1(47);
   PendableValue value_2(52);
@@ -206,17 +213,17 @@ TEST(Selector, MultiplePendables_AllReady) {
   value_1.allow_completion_ = true;
   value_2.allow_completion_ = true;
 
-  auto result = dispatcher.RunPendableUntilStalled(selector);
+  auto result = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result.IsReady());
   ExpectVariantIs<0>(*result, 47);
 
-  auto result_2 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_2 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_2.IsReady());
   ExpectVariantIs<1>(*result_2, 52);
 }
 
 TEST(Selector, MultiplePendables_SequentialCompletion) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendableValue value_1(47);
   PendableValue value_2(52);
@@ -225,30 +232,30 @@ TEST(Selector, MultiplePendables_SequentialCompletion) {
                     PendableFor<&PendableValue::Get>(value_2),
                     PendableFor<&PendableValue::Get>(value_3));
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
 
   value_1.allow_completion_ = true;
-  auto result_1 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_1 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_1.IsReady());
   ExpectVariantIs<0>(*result_1, 47);
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
 
   value_2.allow_completion_ = true;
-  auto result_2 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_2 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_2.IsReady());
   ExpectVariantIs<1>(*result_2, 52);
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
 
   value_3.allow_completion_ = true;
-  auto result_3 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_3 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_3.IsReady());
   ExpectVariantIs<2>(*result_3, 57);
 }
 
 TEST(Selector, MultiplePendables_OutOfOrderCompletion) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendableValue value_1(47);
   PendableValue value_2(52);
@@ -257,41 +264,64 @@ TEST(Selector, MultiplePendables_OutOfOrderCompletion) {
                     PendableFor<&PendableValue::Get>(value_2),
                     PendableFor<&PendableValue::Get>(value_3));
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
 
   value_2.allow_completion_ = true;
-  auto result_2 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_2 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_2.IsReady());
   ExpectVariantIs<1>(*result_2, 52);
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
 
   value_1.allow_completion_ = true;
-  auto result_1 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_1 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_1.IsReady());
   ExpectVariantIs<0>(*result_1, 47);
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(selector), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(selector), Pending());
 
   value_3.allow_completion_ = true;
-  auto result_3 = dispatcher.RunPendableUntilStalled(selector);
+  auto result_3 = dispatcher.RunInTaskUntilStalled(selector);
   ASSERT_TRUE(result_3.IsReady());
   auto& result_3_variant = *result_3;
   ExpectVariantIs<2>(result_3_variant, 57);
 }
 
+PW_MODIFY_DIAGNOSTICS_POP();
+
+struct LiteralFuture {
+  using value_type = int;
+  constexpr LiteralFuture() = default;
+  constexpr bool is_complete() const { return false; }
+  constexpr pw::async2::Poll<int> Pend(pw::async2::Context&) {
+    return pw::async2::Pending();
+  }
+};
+
+static_assert(pw::async2::Future<
+              SelectFuture<LiteralFuture, LiteralFuture, LiteralFuture>>);
+static_assert(
+    pw::async2::Future<
+        SelectFuture<ValueFuture<int>, ValueFuture<int>, ValueFuture<char>>>);
+
+PW_CONSTEXPR_TEST(SelectFuture, DefaultConstruct, {
+  SelectFuture<LiteralFuture, LiteralFuture, LiteralFuture> future;
+  PW_TEST_EXPECT_FALSE(future.is_pendable());
+  PW_TEST_EXPECT_FALSE(future.is_complete());
+});
+
 TEST(SelectFuture, Pend_OneReady) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   BroadcastValueProvider<int> int_provider;
   BroadcastValueProvider<char> char_provider;
 
   auto future = Select(int_provider.Get(), char_provider.Get());
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(future), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(future), Pending());
 
   char_provider.Resolve('y');
-  auto result = dispatcher.RunPendableUntilStalled(future);
+  auto result = dispatcher.RunInTaskUntilStalled(future);
   ASSERT_TRUE(result.IsReady());
 
   EXPECT_FALSE(result->has_value<0>());
@@ -302,7 +332,7 @@ TEST(SelectFuture, Pend_OneReady) {
 }
 
 TEST(SelectFuture, Pend_MultipleReady) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   BroadcastValueProvider<int> int_provider;
   BroadcastValueProvider<char> char_provider;
@@ -311,12 +341,12 @@ TEST(SelectFuture, Pend_MultipleReady) {
   auto future =
       Select(int_provider.Get(), char_provider.Get(), bool_provider.Get());
 
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(future), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(future), Pending());
 
   char_provider.Resolve('y');
   bool_provider.Resolve(false);
 
-  auto result = dispatcher.RunPendableUntilStalled(future);
+  auto result = dispatcher.RunInTaskUntilStalled(future);
   ASSERT_TRUE(result.IsReady());
 
   EXPECT_FALSE(result->has_value<0>());
@@ -327,6 +357,93 @@ TEST(SelectFuture, Pend_MultipleReady) {
   EXPECT_EQ(result->value<2>(), false);
 
   EXPECT_TRUE(future.is_complete());
+}
+
+class SimpleFuture {
+ public:
+  using value_type = int;
+
+  SimpleFuture() = default;
+
+  SimpleFuture(SimpleFuture&& other) = default;
+  SimpleFuture& operator=(SimpleFuture&& other) = default;
+
+  ~SimpleFuture() { core_.Unlist(); }
+
+  pw::async2::Poll<int> Pend(pw::async2::Context& cx) {
+    return core_.DoPend(*this, cx);
+  }
+
+  bool is_complete() const { return core_.is_complete(); }
+
+ private:
+  friend class SimpleFutureProvider;
+  friend class pw::async2::FutureCore;
+
+  static constexpr char kWaitReason[] = "SimpleFuture";
+
+  explicit SimpleFuture(pw::async2::FutureState::Pending)
+      : core_(pw::async2::FutureState::kPending) {}
+
+  pw::async2::Poll<int> DoPend(pw::async2::Context&) {
+    if (ready_) {
+      return 1;
+    }
+    return pw::async2::Pending();
+  }
+
+  void Complete() {
+    ready_ = true;
+    core_.WakeAndMarkReady();
+  }
+
+  bool ready_ = false;
+  pw::async2::FutureCore core_;
+};
+
+class SimpleFutureProvider {
+ public:
+  SimpleFuture Get() {
+    SimpleFuture future(pw::async2::FutureState::kPending);
+    futures_.Push(future);
+    return future;
+  }
+
+  bool has_active_futures() const { return !futures_.empty(); }
+
+  void ResolveOne() {
+    if (SimpleFuture* future = futures_.PopIfAvailable()) {
+      future->Complete();
+    }
+  }
+
+ private:
+  pw::async2::FutureList<&SimpleFuture::core_> futures_;
+};
+
+TEST(SelectFuture, DestroysFuturesOnCompletion) {
+  DispatcherForTest dispatcher;
+  SimpleFutureProvider provider1;
+  SimpleFutureProvider provider2;
+  EXPECT_FALSE(provider1.has_active_futures());
+  EXPECT_FALSE(provider2.has_active_futures());
+
+  auto future = Select(provider1.Get(), provider2.Get());
+  EXPECT_TRUE(provider1.has_active_futures());
+  EXPECT_TRUE(provider2.has_active_futures());
+
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(future), Pending());
+
+  provider2.ResolveOne();
+
+  auto result = dispatcher.RunInTaskUntilStalled(future);
+  ASSERT_TRUE(result.IsReady());
+  EXPECT_FALSE(result->has_value<0>());
+  EXPECT_TRUE(result->has_value<1>());
+
+  // Even though only one future was resolved, both should be destroyed.
+  EXPECT_FALSE(provider1.has_active_futures());
+  EXPECT_FALSE(provider2.has_active_futures());
 }
 
 }  // namespace

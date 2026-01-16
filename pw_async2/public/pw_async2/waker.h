@@ -15,7 +15,7 @@
 
 #include "pw_assert/assert.h"
 #include "pw_async2/internal/config.h"
-#include "pw_async2/lock.h"
+#include "pw_async2/internal/lock.h"
 #include "pw_containers/intrusive_forward_list.h"
 #include "pw_log/tokenized_args.h"
 #include "pw_sync/lock_annotations.h"
@@ -37,11 +37,11 @@ template <typename Callable>
 [[nodiscard]] bool CloneWaker(Waker& waker_in,
                               Waker& waker_out,
                               log::Token wait_reason = log::kDefaultToken)
-    PW_LOCKS_EXCLUDED(impl::dispatcher_lock());
+    PW_LOCKS_EXCLUDED(internal::lock());
 
 }  // namespace internal
 
-/// @submodule{pw_async2,core}
+/// @submodule{pw_async2,wakers}
 
 /// Attempts to store a waker associated with the current context into
 /// ``waker_or_queue_out``. If the waker cannot be stored into
@@ -127,7 +127,7 @@ template <typename Callable>
                           waker_or_queue_out,                 \
                           wait_reason_string)
 
-/// @}
+/// @endsubmodule
 
 // Base implementation of the TRY_{STORE,CLONE}_WAKER macros.
 #define _PW_ASYNC_TRY_GET_WAKER(                                        \
@@ -141,7 +141,7 @@ template <typename Callable>
         return func(source, waker_or_queue_out, pw_async2_wait_reason); \
       })
 
-/// @submodule{pw_async2,core}
+/// @submodule{pw_async2,wakers}
 
 /// An object which can respond to asynchronous events by queueing work to
 /// be done in response, such as placing a ``Task`` on a ``Dispatcher``
@@ -159,31 +159,27 @@ template <typename Callable>
 /// them into ``Task::Pend`` via its ``Context`` argument.
 class Waker : public pw::IntrusiveForwardList<Waker>::Item {
   friend class Task;
-  friend class NativeDispatcherBase;
+  friend class Dispatcher;
   friend class internal::WakerQueueBase;
 
  public:
   constexpr Waker() = default;
-  Waker(Waker&& other) noexcept PW_LOCKS_EXCLUDED(impl::dispatcher_lock());
+  Waker(Waker&& other) noexcept PW_LOCKS_EXCLUDED(internal::lock());
 
   /// Replace this ``Waker`` with another.
   ///
   /// This operation is guaranteed to be thread-safe.
-  Waker& operator=(Waker&& other) noexcept
-      PW_LOCKS_EXCLUDED(impl::dispatcher_lock());
+  Waker& operator=(Waker&& other) noexcept PW_LOCKS_EXCLUDED(internal::lock());
 
   ~Waker() noexcept { RemoveFromTaskWakerList(); }
 
   /// Wakes up the ``Waker``'s creator, alerting it that an asynchronous
   /// event has occurred that may allow it to make progress.
   ///
-  /// ``Wake`` operates on an rvalue reference (``&&``) in order to indicate
-  /// that the event that was waited on has been complete. This makes it
-  /// possible to track the outstanding events that may cause a ``Task`` to
-  /// wake up and make progress.
+  /// \note Wake() causes the waker to remove itself from the Task's waker list.
   ///
   /// This operation is guaranteed to be thread-safe.
-  void Wake() && PW_LOCKS_EXCLUDED(impl::dispatcher_lock());
+  void Wake() PW_LOCKS_EXCLUDED(internal::lock());
 
   /// Returns whether this ``Waker`` is empty.
   ///
@@ -193,7 +189,7 @@ class Waker : public pw::IntrusiveForwardList<Waker>::Item {
   /// moved-from ``Waker`` will be empty.
   ///
   /// This operation is guaranteed to be thread-safe.
-  [[nodiscard]] bool IsEmpty() const PW_LOCKS_EXCLUDED(impl::dispatcher_lock());
+  [[nodiscard]] bool IsEmpty() const PW_LOCKS_EXCLUDED(internal::lock());
 
   /// Clears this ``Waker``.
   ///
@@ -201,7 +197,7 @@ class Waker : public pw::IntrusiveForwardList<Waker>::Item {
   /// ``IsEmpty`` will return ``true``.
   ///
   /// This operation is guaranteed to be thread-safe.
-  void Clear() PW_LOCKS_EXCLUDED(impl::dispatcher_lock()) {
+  void Clear() PW_LOCKS_EXCLUDED(internal::lock()) {
     RemoveFromTaskWakerList();
   }
 
@@ -210,7 +206,7 @@ class Waker : public pw::IntrusiveForwardList<Waker>::Item {
                                    Waker& waker_out,
                                    log::Token wait_reason);
 
-  Waker(Task& task) PW_LOCKS_EXCLUDED(impl::dispatcher_lock()) : task_(&task) {
+  Waker(Task& task) PW_LOCKS_EXCLUDED(internal::lock()) : task_(&task) {
     InsertIntoTaskWakerList();
   }
 
@@ -223,23 +219,23 @@ class Waker : public pw::IntrusiveForwardList<Waker>::Item {
   ///
   /// This operation is guaranteed to be thread-safe.
   void InternalCloneIntoLocked(Waker& waker_out, log::Token wait_reason) &
-      PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+      PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
 
   void InsertIntoTaskWakerList();
   void InsertIntoTaskWakerListLocked()
-      PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+      PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
   void RemoveFromTaskWakerList();
   void RemoveFromTaskWakerListLocked()
-      PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+      PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
 
   // The ``Task`` to poll when awoken.
-  Task* task_ PW_GUARDED_BY(impl::dispatcher_lock()) = nullptr;
+  Task* task_ PW_GUARDED_BY(internal::lock()) = nullptr;
 
 #if PW_ASYNC2_DEBUG_WAIT_REASON
   log::Token wait_reason_ = log::kDefaultToken;
 #endif  // PW_ASYNC2_DEBUG_WAIT_REASON
 };
 
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

@@ -14,10 +14,13 @@
 
 #include "pw_rpc_transport/egress_ingress.h"
 
+#include <array>
 #include <cinttypes>
 
+#include "pw_allocator/testing.h"
 #include "pw_assert/check.h"
 #include "pw_bytes/span.h"
+#include "pw_containers/dynamic_vector.h"
 #include "pw_metric/metric.h"
 #include "pw_rpc/client_server.h"
 #include "pw_rpc/packet_meta.h"
@@ -54,7 +57,7 @@ class TestService final
 class TestTransport : public RpcFrameSender {
  public:
   explicit TestTransport(size_t mtu, bool is_faulty = false)
-      : mtu_(mtu), is_faulty_(is_faulty) {}
+      : mtu_(mtu), is_faulty_(is_faulty), buffer_(allocator_) {}
 
   size_t MaximumTransmissionUnit() const override { return mtu_; }
 
@@ -75,7 +78,8 @@ class TestTransport : public RpcFrameSender {
  private:
   size_t mtu_;
   bool is_faulty_ = false;
-  std::vector<std::byte> buffer_;
+  pw::allocator::test::AllocatorForTest<2048> allocator_;
+  pw::DynamicVector<std::byte> buffer_;
 };
 
 // An egress handler that passes the received RPC packet to the service
@@ -306,7 +310,8 @@ TEST(RpcEgressIngressTest, HdlcFramingRoundtrip) {
 TEST(RpcEgressIngressTest, MalformedRpcPacket) {
   constexpr uint32_t kTestChannel = 1;
   constexpr size_t kMtu = 33;
-  std::vector<std::byte> kMalformedPacket = {std::byte{0x42}, std::byte{0x74}};
+  constexpr std::array<std::byte, 2> kMalformedPacket = {std::byte{0x42},
+                                                         std::byte{0x74}};
 
   TestTransport transport(kMtu);
   SimpleRpcEgress<kMaxPacketSize> egress("test", transport);

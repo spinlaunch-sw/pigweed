@@ -17,7 +17,8 @@
 #include <cstdint>
 
 #include "pw_allocator/chunk_pool.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_allocator/testing.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_unit_test/framework.h"
 
@@ -62,7 +63,7 @@ TEST(AsyncPoolTest, PendAllocateIsNotReadyUntilDeallocate) {
   // At this point, the pool is empty.
   EXPECT_EQ(pool.Allocate(), nullptr);
 
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
   void* async_ptr = nullptr;
   pw::async2::PendFuncTask task(
       [&](pw::async2::Context& context) -> pw::async2::Poll<> {
@@ -74,10 +75,10 @@ TEST(AsyncPoolTest, PendAllocateIsNotReadyUntilDeallocate) {
         return pw::async2::Ready();
       });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   pool.Deallocate(ptrs[0]);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
+  dispatcher.RunToCompletion();
   EXPECT_NE(async_ptr, nullptr);
   ptrs[0] = async_ptr;
 

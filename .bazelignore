@@ -24,3 +24,4 @@ bazel-out
 bazel-pigweed
 bazel-testlogs
 outbazel
+pw_web/node_modules

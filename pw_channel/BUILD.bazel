@@ -35,7 +35,7 @@ cc_library(
     deps = [
         ":properties",
         "//pw_assert:assert",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_bytes",
         "//pw_multibuf",
@@ -58,6 +58,7 @@ pw_cc_test(
         ":pw_channel",
         "//pw_allocator:testing",
         "//pw_assert:check",
+        "//pw_async2:testing",
         "//pw_multibuf:allocator",
         "//pw_multibuf:allocator_async",
         "//pw_multibuf:simple_allocator",
@@ -73,7 +74,7 @@ cc_library(
     strip_include_prefix = "public",
     deps = [
         ":pw_channel",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_multibuf:allocator",
         "//pw_multibuf:allocator_async",
@@ -92,6 +93,7 @@ pw_cc_test(
     deps = [
         ":forwarding_channel",
         "//pw_allocator:testing",
+        "//pw_async2:testing",
         "//pw_multibuf:header_chunk_region_tracker",
         "//pw_multibuf:simple_allocator",
         "//pw_string:string",
@@ -106,7 +108,7 @@ cc_library(
     strip_include_prefix = "public",
     deps = [
         ":pw_channel",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_multibuf",
         "//pw_multibuf:allocator",
@@ -126,7 +128,7 @@ pw_cc_test(
         ":pw_channel",
         "//pw_allocator:testing",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2:testing",
         "//pw_bytes",
         "//pw_multibuf:allocator_async",
         "//pw_multibuf:testing",
@@ -139,13 +141,17 @@ cc_library(
     srcs = ["epoll_channel.cc"],
     hdrs = ["public/pw_channel/epoll_channel.h"],
     features = ["-conversion_warnings"],
+    implementation_deps = [
+        "//pw_assert:check",
+        "//pw_log",
+    ],
     strip_include_prefix = "public",
     target_compatible_with = ["@platforms//os:linux"],
     deps = [
         ":pw_channel",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:epoll_dispatcher",
         "//pw_async2:poll",
-        "//pw_log",
         "//pw_multibuf",
         "//pw_multibuf:allocator",
         "//pw_multibuf:allocator_async",
@@ -165,7 +171,8 @@ pw_cc_test(
         ":epoll_channel",
         ":pw_channel",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2:epoll_dispatcher",
+        "//pw_async2:testing",
         "//pw_bytes",
         "//pw_multibuf:allocator_async",
         "//pw_multibuf:testing",
@@ -202,7 +209,7 @@ cc_library(
     strip_include_prefix = "public",
     deps = [
         ":pw_channel",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_log",
         "//pw_multibuf",
         "//pw_multibuf:allocator",
@@ -225,6 +232,7 @@ pw_cc_test(
     deps = [
         ":stream_channel",
         "//pw_async2:pend_func_task",
+        "//pw_async2:testing",
         "//pw_bytes",
         "//pw_multibuf:allocator_async",
         "//pw_multibuf:testing",
@@ -246,7 +254,7 @@ cc_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":properties",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_result",
         "//third_party/fuchsia:stdcompat",
     ],
@@ -258,8 +266,9 @@ pw_cc_test(
     has_nc_test = True,
     deps = [
         ":packet_channel",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
+        "//pw_async2:testing",
         "//pw_containers:inline_deque",
         "//pw_containers:vector",
         "//pw_span",
@@ -280,7 +289,7 @@ cc_library(
     deps = [
         ":packet_channel",
         "//pw_allocator:allocator",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_containers:dynamic_deque",
         "//pw_containers:dynamic_vector",
@@ -295,9 +304,9 @@ pw_cc_test(
         ":test_packet_channel",
         "//pw_allocator:testing",
         "//pw_assert:assert",
-        "//pw_async2:dispatcher",
         "//pw_async2:pend_func_task",
         "//pw_async2:poll",
+        "//pw_async2:testing",
         "//pw_result",
     ],
 )
@@ -310,13 +319,14 @@ cc_library(
         "public/pw_channel/packet_proxy.h",
         "public/pw_channel/packet_proxy_task.h",
     ],
+    copts = ["-Wno-deprecated-declarations"],
     implementation_deps = ["//pw_assert:check"],
     strip_include_prefix = "public",
     deps = [
         ":packet_channel",
         "//pw_allocator",
         "//pw_allocator:chunk_pool",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_async2:waker_queue",
         "//pw_containers:inline_async_queue",
@@ -332,11 +342,13 @@ cc_library(
 pw_cc_test(
     name = "packet_proxy_test",
     srcs = ["packet_proxy_test.cc"],
+    copts = ["-Wno-deprecated-declarations"],
     deps = [
         ":packet_proxy",
         ":test_packet_channel",
         "//pw_allocator:testing",
         "//pw_async2:pend_func_task",
+        "//pw_async2:testing",
     ],
 )
 

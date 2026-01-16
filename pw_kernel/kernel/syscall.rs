@@ -21,6 +21,7 @@ use syscall_defs::{Signals, SysCallId, SysCallReturnValue};
 use time::{Clock, Instant};
 
 use crate::Kernel;
+use crate::interrupt_controller::InterruptController;
 use crate::object::{KernelObject, SyscallBuffer};
 
 const SYSCALL_DEBUG: bool = false;
@@ -98,7 +99,7 @@ fn handle_object_wait<'a, K: Kernel>(kernel: K, mut args: K::SyscallArgs<'a>) ->
 
     let ret = object.object_wait(kernel, signal_mask, deadline);
     log_if::debug_if!(SYSCALL_DEBUG, "syscall: object_wait complete");
-    ret.map(|_| 0)
+    ret.map(|s| s.bits().into())
 }
 
 fn handle_channel_transact<'a, K: Kernel>(kernel: K, mut args: K::SyscallArgs<'a>) -> Result<u64> {
@@ -177,6 +178,27 @@ fn handle_channel_respond<'a, K: Kernel>(kernel: K, mut args: K::SyscallArgs<'a>
     ret.map(|_| 0)
 }
 
+fn handle_interrupt_ack<'a, K: Kernel>(kernel: K, mut args: K::SyscallArgs<'a>) -> Result<u64> {
+    log_if::debug_if!(SYSCALL_DEBUG, "syscall: handling interrupt_ack");
+    let handle = args.next_u32()?;
+    let signals = args.next_u32()?;
+
+    let Some(signal_mask) = Signals::from_bits(signals) else {
+        log_if::debug_if!(
+            SYSCALL_DEBUG,
+            "syscall: InterruptAck invalid signal mask: {:#010x}",
+            signals as usize
+        );
+
+        return Err(Error::InvalidArgument);
+    };
+
+    let object = lookup_handle(kernel, handle)?;
+    let ret = object.interrupt_ack(kernel, signal_mask);
+    log_if::debug_if!(SYSCALL_DEBUG, "syscall: interrupt_ack complete");
+    ret.map(|_| 0)
+}
+
 fn handle_debug_log<'a, K: Kernel>(kernel: K, mut args: K::SyscallArgs<'a>) -> Result<u64> {
     let buffer_addr = args.next_usize()?;
     let buffer_len = args.next_usize()?;
@@ -187,6 +209,19 @@ fn handle_debug_log<'a, K: Kernel>(kernel: K, mut args: K::SyscallArgs<'a>) -> R
     )?;
     let mut console = console::Console::new();
     console.write_all(buffer.as_slice()).map(|_| 0)
+}
+
+fn handle_debug_trigger_interrupt<'a, K: Kernel>(
+    _kernel: K,
+    mut args: K::SyscallArgs<'a>,
+) -> Result<u64> {
+    log_if::debug_if!(SYSCALL_DEBUG, "syscall: handling debug_trigger_interrupt");
+
+    let irq = args.next_u32()?;
+    K::InterruptController::trigger_interrupt(irq);
+
+    log_if::debug_if!(SYSCALL_DEBUG, "syscall: debug_trigger_interrupt complete");
+    Ok(0)
 }
 
 pub fn handle_syscall<'a, K: Kernel>(
@@ -208,6 +243,7 @@ pub fn handle_syscall<'a, K: Kernel>(
         SysCallId::ChannelTransact => handle_channel_transact(kernel, args),
         SysCallId::ChannelRead => handle_channel_read(kernel, args),
         SysCallId::ChannelRespond => handle_channel_respond(kernel, args),
+        SysCallId::InterruptAck => handle_interrupt_ack(kernel, args),
         // TODO: Remove this syscall when logging is added.
         SysCallId::DebugPutc => {
             let arg = args.next_u32()?;
@@ -224,6 +260,8 @@ pub fn handle_syscall<'a, K: Kernel>(
             crate::target::shutdown(exit_code);
         }
         SysCallId::DebugLog => handle_debug_log(kernel, args),
+        SysCallId::DebugNop => Ok(0),
+        SysCallId::DebugTriggerInterrupt => handle_debug_trigger_interrupt(kernel, args),
         _ => {
             log_if::debug_if!(SYSCALL_DEBUG, "syscall: log");
             Err(Error::InvalidArgument)

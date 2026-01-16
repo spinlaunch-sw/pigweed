@@ -76,6 +76,13 @@ pw_add_library(pw_containers.flat_map INTERFACE
     pw_assert.assert
 )
 
+pw_add_library(pw_containers.functional INTERFACE
+  HEADERS
+    public/pw_containers/functional.h
+  PUBLIC_INCLUDES
+    public
+)
+
 pw_add_library(pw_containers._common INTERFACE
   HEADERS
     public/pw_containers/internal/traits.h
@@ -104,7 +111,7 @@ pw_add_library(pw_containers.async_count_and_capacity INTERFACE
   PUBLIC_INCLUDES
     public
   PUBLIC_DEPS
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
     pw_async2.waker_queue
     pw_containers._deque_common
@@ -141,6 +148,7 @@ pw_add_library(pw_containers.inline_async_deque INTERFACE
   PUBLIC_DEPS
     pw_containers.async_count_and_capacity
     pw_containers.inline_deque
+    pw_preprocessor
 )
 
 pw_add_library(pw_containers._queue_common INTERFACE
@@ -340,6 +348,7 @@ pw_add_library(pw_containers.vector INTERFACE
     public
   PUBLIC_DEPS
     pw_assert
+    pw_containers.storage
     pw_preprocessor
     pw_toolchain.constexpr_tag
 )
@@ -353,6 +362,16 @@ pw_add_library(pw_containers.dynamic_vector INTERFACE
     pw_allocator.allocator
     pw_containers.dynamic_deque
     pw_containers.iterator
+)
+
+pw_add_library(pw_containers.dynamic_ptr_vector INTERFACE
+  HEADERS
+    public/pw_containers/dynamic_ptr_vector.h
+  PUBLIC_INCLUDES
+    public
+  PUBLIC_DEPS
+    pw_allocator.allocator
+    pw_containers.dynamic_vector
 )
 
 pw_add_library(pw_containers.wrapped_iterator INTERFACE
@@ -519,6 +538,16 @@ pw_add_test(pw_containers.flat_map_test
     pw_polyfill
 )
 
+pw_add_test(pw_containers.functional_test
+  SOURCES
+    functional_test.cc
+  PRIVATE_DEPS
+    pw_containers.functional
+  GROUPS
+    modules
+    pw_containers
+)
+
 pw_add_test(pw_containers.dynamic_deque_test
   SOURCES
     dynamic_deque_test.cc
@@ -547,11 +576,12 @@ pw_add_test(pw_containers.inline_async_deque_test
   SOURCES
     inline_async_deque_test.cc
   PRIVATE_DEPS
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.pend_func_task
     pw_async2.poll
     pw_containers.inline_async_deque
     pw_containers._test_helpers
+    pw_async2.testing
     pw_status
   GROUPS
     modules
@@ -640,9 +670,11 @@ pw_add_test(pw_containers.inline_async_queue_test
     inline_async_queue_test.cc
   PRIVATE_DEPS
     pw_containers.inline_async_queue
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.pend_func_task
     pw_async2.poll
+    pw_async2.testing
+    pw_preprocessor
     pw_status
   GROUPS
     modules
@@ -762,6 +794,19 @@ pw_add_test(pw_containers.dynamic_vector_test
     pw_allocator.testing
     pw_containers._test_helpers
     pw_containers.dynamic_vector
+  GROUPS
+    modules
+    pw_containers
+)
+
+pw_add_test(pw_containers.dynamic_ptr_vector_test
+  SOURCES
+    dynamic_ptr_vector_test.cc
+  PRIVATE_DEPS
+    pw_compilation_testing._pigweed_only_negative_compilation
+    pw_allocator.testing
+    pw_containers._test_helpers
+    pw_containers.dynamic_ptr_vector
   GROUPS
     modules
     pw_containers

@@ -14,7 +14,9 @@
 
 #include "public/pw_async2/size_report/size_report.h"
 #include "pw_assert/check.h"
+#include "pw_async2/basic_dispatcher.h"
 #include "pw_async2/dispatcher.h"
+#include "pw_async2/pend_func_task.h"
 #include "pw_async2/pendable.h"
 #include "pw_async2/size_report/size_report.h"
 #include "pw_bloat/bloat_this_binary.h"
@@ -28,8 +30,11 @@
 #endif  // _PW_ASYNC2_SIZE_REPORT_COROUTINE
 
 namespace pw::async2::size_report {
+namespace {
 
-static Dispatcher dispatcher;
+BasicDispatcher dispatcher;
+
+}  // namespace
 
 #ifdef _PW_ASYNC2_SIZE_REPORT_ONCE_SENDER
 
@@ -125,25 +130,24 @@ int Measure() {
 
 #endif  // _PW_ASYNC2_SIZE_REPORT_INCREMENTAL_TASK
 
-  Poll<> result = dispatcher.RunUntilStalled();
-  PW_BLOAT_COND(result.IsReady(), mask);
+  dispatcher.RunUntilStalled();
 
-  auto pendable_value = PendableFor<&PendableInt::Get>(value);
-  dispatcher.RunPendableUntilStalled(pendable_value).IgnorePoll();
+  PendFuncTask task3([&](Context& cx) { return value.Get(cx).Readiness(); });
+  dispatcher.Post(task3);
+  dispatcher.RunUntilStalled();
 
   task.should_complete = true;
   // Move the waker onto the stack to call its operator= before waking the task.
   Waker waker;
   PW_BLOAT_EXPR((waker = std::move(task.last_waker)), mask);
-  std::move(waker).Wake();
+  waker.Wake();
   dispatcher.RunToCompletion();
 
 #ifdef _PW_ASYNC2_SIZE_REPORT_ONCE_SENDER
 
   ReceiverTask add_receiver_task(SenderAdd(1, 2));
   dispatcher.Post(add_receiver_task);
-  result = dispatcher.RunUntilStalled();
-  PW_BLOAT_COND(result.IsReady(), mask);
+  dispatcher.RunUntilStalled();
 
 #endif  // _PW_ASYNC2_SIZE_REPORT_ONCE_SENDER
 
@@ -151,8 +155,7 @@ int Measure() {
 
   ReceiverTask sub_receiver_task(SenderSub(1, 2));
   dispatcher.Post(sub_receiver_task);
-  result = dispatcher.RunUntilStalled();
-  PW_BLOAT_COND(result.IsReady(), mask);
+  dispatcher.RunUntilStalled();
 
 #endif  // _PW_ASYNC2_SIZE_REPORT_ONCE_SENDER_INCREMENTAL
 
@@ -162,12 +165,11 @@ int Measure() {
   int output = 0;
   ExpectCoroTask coro_task = StoresFiveThenReturns(coro_cx, output);
   dispatcher.Post(coro_task);
-  result = dispatcher.RunUntilStalled();
-  PW_BLOAT_COND(result.IsReady(), mask);
+  PW_BLOAT_COND(dispatcher.RunUntilStalled(), mask);
 
 #endif  // _PW_ASYNC2_SIZE_REPORT_COROUTINE
 
-  return task.destroyed;
+  return task.polled;
 }
 
 }  // namespace pw::async2::size_report

@@ -20,6 +20,7 @@
 
 #include "pw_async2/dispatcher.h"
 #include "pw_async2/future.h"
+#include "pw_async2/poll.h"
 #include "pw_containers/optional_tuple.h"
 
 namespace pw::async2 {
@@ -29,12 +30,8 @@ namespace pw::async2 {
 template <typename... Pendables>
 class Selector;
 
-namespace experimental {
-
 template <typename... Futures>
 class SelectFuture;
-
-}  // namespace experimental
 
 /// The poll result of a ``Pendable`` within a ``Selector``.
 /// This type stores both the index of the pendable, and its returned value on
@@ -48,7 +45,7 @@ struct SelectResult {
   template <typename... Pendables>
   friend class Selector;
   template <typename... Futures>
-  friend class experimental::SelectFuture;
+  friend class SelectFuture;
 
   explicit SelectResult(T&& val) : value(std::move(val)) {}
 };
@@ -59,7 +56,7 @@ struct AllPendablesCompleted {
   std::nullopt_t value = std::nullopt;
 };
 
-/// @}
+/// @endsubmodule
 
 namespace internal {
 
@@ -138,7 +135,7 @@ void VisitSelectResult(ResultVariant&& variant,
 ///   }
 /// @endcode
 template <typename... Pendables>
-class Selector {
+class [[deprecated("Use future-based Select instead")]] Selector {
  public:
   static_assert(sizeof...(Pendables) > 0,
                 "Cannot select over an empty set of pendables");
@@ -169,8 +166,8 @@ class Selector {
         return PendFrom<kTupleIndex + 1>(cx, has_active_pendable);
       }
 
-      using value_type =
-          PendOutputOf<std::tuple_element_t<kTupleIndex, decltype(pendables_)>>;
+      using value_type = internal::PendOutputOf<
+          std::tuple_element_t<kTupleIndex, decltype(pendables_)>>;
       Poll<value_type> result = pendable.Pend(cx);
 
       if (result.IsReady()) {
@@ -197,10 +194,11 @@ Selector(Pendables&&...) -> Selector<Pendables...>;
 
 /// Returns the result of the first of the provided pendables which completes.
 ///
-/// This ``Select`` function is intended for single use only. To iterate over
-/// all ready pendables, use ``Selector`` directly.
+/// This ``SelectPendable`` function is intended for single use only.
+/// To iterate over all ready pendables, use ``Selector`` directly.
 template <typename... Pendables>
-auto Select(Context& cx, Pendables&&... pendables) {
+[[deprecated("Use future-based Select instead")]]
+auto SelectPendable(Context& cx, Pendables&&... pendables) {
   Selector selector(std::forward<Pendables>(pendables)...);
   return selector.Pend(cx);
 }
@@ -223,65 +221,56 @@ void VisitSelectResult(
       std::forward_as_tuple(std::forward<ReadyHandler>(on_ready)...),
       std::make_index_sequence<sizeof...(ReadyHandler)>{});
 }
-
-/// @}
-
-namespace experimental {
-
 template <typename... Futures>
-class SelectFuture
-    : public Future<SelectFuture<Futures...>,
-                    OptionalTuple<typename Futures::value_type...>> {
+class SelectFuture {
  public:
   static_assert(sizeof...(Futures) > 0,
                 "Cannot select over an empty set of futures");
 
-  using ResultTuple = OptionalTuple<typename Futures::value_type...>;
-  using Base = Future<SelectFuture<Futures...>, ResultTuple>;
+  using value_type = OptionalTuple<typename Futures::value_type...>;
+
+  constexpr SelectFuture() = default;
 
   explicit SelectFuture(Futures&&... futures)
-      : futures_(std::move(futures)...) {}
+      : futures_(std::move(futures)...), state_(FutureState::kPending) {}
 
- private:
-  friend Base;
-
-  static constexpr auto kTupleIndexSequence =
-      std::make_index_sequence<sizeof...(Futures)>();
-
-  Poll<ResultTuple> DoPend(Context& cx) {
-    ResultTuple tuple;
+  Poll<value_type> Pend(Context& cx) {
+    value_type tuple;
     PendAll(cx, kTupleIndexSequence, tuple);
     if (!tuple.empty()) {
+      state_.MarkComplete();
+      futures_ = std::tuple<Futures...>();
       return tuple;
     }
     return Pending();
   }
 
-  void DoMarkComplete() {}
-  bool DoIsComplete() const { return IsComplete<0>(); }
-
-  template <size_t kTupleIndex>
-  bool IsComplete() const {
-    if constexpr (kTupleIndex < sizeof...(Futures)) {
-      auto& future = std::get<kTupleIndex>(futures_);
-      if (future.is_complete()) {
-        return true;
-      }
-      return IsComplete<kTupleIndex + 1>();
-    } else {
-      return false;
-    }
+  [[nodiscard]] constexpr bool is_pendable() const {
+    return state_.is_pendable();
   }
+  [[nodiscard]] constexpr bool is_complete() const {
+    return state_.is_complete();
+  }
+
+ private:
+  static constexpr auto kTupleIndexSequence =
+      std::make_index_sequence<sizeof...(Futures)>();
+
+  enum State : uint8_t {
+    kDefaultConstructed,
+    kPendable,
+    kComplete,
+  };
 
   /// Pends every sub-future, storing the results of each that is ready in the
   /// provided result tuple.
   template <size_t... Is>
-  void PendAll(Context& cx, std::index_sequence<Is...>, ResultTuple& result) {
+  void PendAll(Context& cx, std::index_sequence<Is...>, value_type& result) {
     (PendFuture<Is>(cx, result), ...);
   }
 
   template <size_t kTupleIndex>
-  void PendFuture(Context& cx, ResultTuple& result) {
+  void PendFuture(Context& cx, value_type& result) {
     auto& future = std::get<kTupleIndex>(futures_);
     if (future.is_complete()) {
       return;
@@ -294,6 +283,7 @@ class SelectFuture
   }
 
   std::tuple<Futures...> futures_;
+  FutureState state_;
 };
 
 template <typename... Futures>
@@ -306,11 +296,11 @@ SelectFuture(Futures&&...) -> SelectFuture<Futures...>;
 /// which stores the results of all the sub-futures which managed to complete.
 template <typename... Futures>
 SelectFuture<Futures...> Select(Futures&&... futures) {
-  static_assert(std::conjunction_v<is_future<Futures>...>,
+  static_assert((Future<Futures> && ...),
                 "All arguments to Select must be Future types");
   return SelectFuture(std::forward<Futures>(futures)...);
 }
 
-}  // namespace experimental
+/// @endsubmodule
 
 }  // namespace pw::async2

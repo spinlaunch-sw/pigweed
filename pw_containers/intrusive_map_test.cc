@@ -298,6 +298,37 @@ TEST_F(IntrusiveMapTest, ReverseIterator) {
   EXPECT_EQ(iter, map.crbegin());
 }
 
+TEST_F(IntrusiveMapTest, IteratorIsDefaultConstructible) {
+  IntrusiveMap::iterator iter;
+  EXPECT_NE(iter, map_.begin());
+  EXPECT_NE(iter, map_.begin());
+  EXPECT_EQ(iter, IntrusiveMap::iterator());
+}
+
+TEST_F(IntrusiveMapTest, IteratorIsCopyConstructible) {
+  IntrusiveMap::iterator iter1 = map_.begin();
+  IntrusiveMap::iterator iter2(iter1);
+  EXPECT_EQ(iter2, map_.begin());
+}
+
+TEST_F(IntrusiveMapTest, IteratorCopyAssignable) {
+  IntrusiveMap::iterator iter1 = map_.begin();
+  IntrusiveMap::iterator iter2 = iter1;
+  EXPECT_EQ(iter2, map_.begin());
+}
+
+TEST_F(IntrusiveMapTest, IteratorisMoveConstructible) {
+  IntrusiveMap::iterator iter1 = map_.begin();
+  IntrusiveMap::iterator iter2(std::move(iter1));
+  EXPECT_EQ(iter2, map_.begin());
+}
+
+TEST_F(IntrusiveMapTest, IteratorMoveAssignable) {
+  IntrusiveMap::iterator iter1 = map_.begin();
+  IntrusiveMap::iterator iter2 = std::move(iter1);
+  EXPECT_EQ(iter2, map_.begin());
+}
+
 TEST_F(IntrusiveMapTest, ConstIterator_CompareNonConst) {
   EXPECT_EQ(map_.end(), map_.cend());
 }
@@ -542,6 +573,36 @@ TEST_F(IntrusiveMapTest, Erase_One_ByItem) {
     EXPECT_EQ(map_.find(pairs_[i].key()), map_.end());
     map_.insert(pairs_[i]);
   }
+}
+
+TEST_F(IntrusiveMapTest, Erase_One_ByItem_IteratorCopy) {
+  // This test explicitly checks that the iterator returned by erase(T&) can be
+  // copy constructed and assigned. This is to ensure that the fix for a static
+  // analysis warning (which was caused by a delegating copy constructor) works
+  // as intended and the returned iterator is valid.
+  auto iter = map_.erase(pairs_[0]);
+
+  // Copy construct
+  IntrusiveMap::iterator iter_copy(iter);
+  EXPECT_EQ(iter_copy, iter);
+
+  // Copy assign
+  IntrusiveMap::iterator iter_assign;
+  iter_assign = iter;
+  EXPECT_EQ(iter_assign, iter);
+
+  // Verify it points to the next item.
+  // The map is sorted by key. The keys in `pairs_` are:
+  // 10, 15, 20, 25, 30, 35, 40, 45, 50, 55.
+  //
+  // `pairs_[0]` has key 30.
+  // The next key in the sorted sequence is 35.
+
+  EXPECT_EQ(iter->key(), 35U);
+  EXPECT_EQ(iter_copy->key(), 35U);
+  EXPECT_EQ(iter_assign->key(), 35U);
+
+  map_.insert(pairs_[0]);
 }
 
 TEST_F(IntrusiveMapTest, Erase_One_ByKey) {

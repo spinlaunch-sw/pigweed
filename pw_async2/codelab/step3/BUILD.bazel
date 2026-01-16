@@ -21,7 +21,8 @@ package(default_visibility = ["//visibility:public"])
 licenses(["notice"])
 
 deps = [
-    "//pw_async2:dispatcher",
+    "//pw_async2:basic_dispatcher",
+    "//pw_async2",
     "//pw_async2:pendable",
     "//pw_async2:poll",
     "//pw_async2:select",
@@ -43,7 +44,11 @@ pw_cc_binary(
         "checkpoint4/vending_machine.cc",
         "checkpoint4/vending_machine.h",
     ],
-    copts = ["-Wno-unused-parameter"],
+    copts = [
+        "-Wno-unused-parameter",
+        # TODO: b/457508399 - Remove once migrated onto futures.
+        "-Wno-deprecated-declarations",
+    ],
     deps = deps,
 )
 
@@ -54,7 +59,11 @@ pw_cc_binary(
         "checkpoint1/vending_machine.cc",
         "checkpoint1/vending_machine.h",
     ],
-    copts = ["-Wno-unused-parameter"],
+    copts = [
+        "-Wno-unused-parameter",
+        # TODO: b/457508399 - Remove once migrated onto futures.
+        "-Wno-deprecated-declarations",
+    ],
     deps = deps,
 )
 
@@ -65,7 +74,11 @@ pw_cc_binary(
         "checkpoint2/vending_machine.cc",
         "checkpoint2/vending_machine.h",
     ],
-    copts = ["-Wno-unused-parameter"],
+    copts = [
+        "-Wno-unused-parameter",
+        # TODO: b/457508399 - Remove once migrated onto futures.
+        "-Wno-deprecated-declarations",
+    ],
     deps = deps,
 )
 
@@ -76,7 +89,11 @@ pw_cc_binary(
         "checkpoint3/vending_machine.cc",
         "checkpoint3/vending_machine.h",
     ],
-    copts = ["-Wno-unused-parameter"],
+    copts = [
+        "-Wno-unused-parameter",
+        # TODO: b/457508399 - Remove once migrated onto futures.
+        "-Wno-deprecated-declarations",
+    ],
     deps = deps,
 )
 

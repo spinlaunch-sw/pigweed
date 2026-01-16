@@ -13,11 +13,11 @@
 // the License.
 #![no_std]
 
-use pw_atomic::AtomicUsize;
+use pw_atomic::{AtomicBool, AtomicUsize};
 use pw_log::info;
 pub use time::{Duration, Instant};
 
-pub mod interrupt;
+pub mod interrupt_controller;
 pub mod object;
 #[cfg(not(feature = "std_panic_handler"))]
 mod panic;
@@ -26,7 +26,7 @@ pub mod sync;
 pub mod syscall;
 mod target;
 
-use interrupt::InterruptController;
+use interrupt_controller::InterruptController;
 use kernel_config::{KernelConfig, KernelConfigInterface};
 pub use object::NullObjectTable;
 #[doc(hidden)]
@@ -41,6 +41,7 @@ pub trait Arch: 'static + Copy + thread::ThreadArg {
     type ThreadState: ThreadState;
     type BareSpinLock: BareSpinLock;
     type Clock: time::Clock;
+    type AtomicBool: AtomicBool;
     type AtomicUsize: AtomicUsize;
     type SyscallArgs<'a>: SyscallArgs<'a>;
     type InterruptController: InterruptController;
@@ -161,6 +162,9 @@ macro_rules! static_init_state {
             static mut BOOTSTRAP_STACK: Stack = Stack::ZEROED;
             static mut IDLE_STACK: Stack = Stack::ZEROED;
 
+            $crate::annotate_stack!("bootstrap", &raw const BOOTSTRAP_STACK, kernel_config::KernelConfig::KERNEL_STACK_SIZE_BYTES);
+            $crate::annotate_stack!("idle", &raw const IDLE_STACK, kernel_config::KernelConfig::KERNEL_STACK_SIZE_BYTES);
+
             $crate::InitKernelState {
                 bootstrap_thread: $crate::ThreadStorage {
                     thread: $crate::Thread::new("bootstrap", Priority::DEFAULT_PRIORITY),
@@ -172,7 +176,7 @@ macro_rules! static_init_state {
                     thread: $crate::Thread::new("idle", Priority::IDLE_PRIORITY),
                     // SAFETY: We're in a block used to initialize a `static`,
                     // which is only executed once.
-                    stack: unsafe { &mut IDLE_STACK },
+                    stack: unsafe { &mut IDLE_STACK},
                 },
             }
         };
@@ -231,7 +235,7 @@ pub fn main<K: Kernel>(kernel: K, init_state: &'static mut InitKernelState<K>) -
         bootstrap_thread_entry,
         &mut init_state.idle_thread,
     );
-    info!("created thread, bootstrapping");
+    info!("Created initial thread; bootstrapping");
 
     // special case where we bootstrap the system by half context switching to this thread
     scheduler::bootstrap_scheduler(kernel, preempt_guard, bootstrap_thread);

@@ -18,7 +18,7 @@
 
 namespace pw::async2 {
 
-/// @submodule{pw_async2,adapters}
+/// @submodule{pw_async2,tasks}
 
 /// A ``Task`` that delegates to a provided function ``func``.
 ///
@@ -27,14 +27,16 @@ namespace pw::async2 {
 ///
 /// The resulting ``Task`` will implement ``Pend`` by invoking ``func``.
 template <typename Func = Function<Poll<>(Context&)> >
-class PendFuncTask : public Task {
+class PendFuncTask final : public Task {
  public:
   using CallableType = Func;
 
   /// Create a new ``Task`` which delegates ``Pend`` to ``func``.
   ///
   /// See class docs for more details.
-  PendFuncTask(Func&& func) : func_(std::forward<Func>(func)) {}
+  explicit PendFuncTask(Func&& func) : func_(std::forward<Func>(func)) {}
+
+  ~PendFuncTask() override { Deregister(); }
 
  private:
   Poll<> DoPend(Context& cx) final { return func_(cx); }
@@ -44,6 +46,6 @@ class PendFuncTask : public Task {
 template <typename Func>
 PendFuncTask(Func&&) -> PendFuncTask<Func>;
 
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

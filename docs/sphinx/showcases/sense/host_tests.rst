@@ -42,14 +42,14 @@ tests:
       .. tab-item:: VS Code
          :sync: vsc
 
-         Make sure that your platform is set to **host_simulator**, as demonstrated
+         Make sure that your platform is set to **k8-fastbuild**, as demonstrated
          in :ref:`showcase-sense-tutorial-intel-nav`. If VS Code was displaying
          red squiggly line warnings in ``blinky_test.cc``, those should go away.
 
          In **Bazel Targets** expand **//modules/blinky**, then right-click
          **:blinky_test (cc_test)**, then select **Test target**.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/20240802/test_target_v2.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/20240802/test_target_v2.png
             :alt: Selecting Test target
 
             Starting ``blinky_test``

@@ -17,15 +17,14 @@
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/testing.h"
 #include "pw_assert/assert.h"
+#include "pw_async2/basic_dispatcher.h"
 #include "pw_async2/context.h"
-#include "pw_async2/dispatcher.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/poll.h"
 #include "pw_async2/try.h"
 #include "pw_async2/waker.h"
 #include "pw_bytes/span.h"
 #include "pw_multibuf/multibuf_v2.h"
-#include "pw_multibuf/observer.h"
 #include "pw_unit_test/framework.h"
 
 namespace pw::multibuf::examples {
@@ -46,9 +45,9 @@ class AsyncMultiBufQueueObserver : public multibuf::Observer {
  private:
   void DoNotify(Event event, size_t) override {
     if (event == multibuf::Observer::Event::kBytesAdded) {
-      std::move(empty_waker_).Wake();
+      empty_waker_.Wake();
     } else if (event == multibuf::Observer::Event::kBytesRemoved) {
-      std::move(full_waker_).Wake();
+      full_waker_.Wake();
     }
   }
 
@@ -83,9 +82,7 @@ class AsyncMultiBufQueue {
  public:
   [[nodiscard]] bool empty() const { return mbuf_->empty(); }
 
-  [[nodiscard]] bool full() const {
-    return mbuf_->ConstChunks().size() == mbuf_->ConstChunks().capacity();
-  }
+  [[nodiscard]] bool full() const { return mbuf_->at_capacity(); }
 
   void push_back(UniquePtr<std::byte[]>&& bytes) {
     PW_ASSERT(!full());
@@ -136,10 +133,10 @@ TEST(RingBufferTest, CanPushAndPop) {
       });
   // DOCSTAG: [pw_multibuf-examples-async_queue-consumer]
 
-  async2::Dispatcher dispatcher;
+  async2::BasicDispatcher dispatcher;
   dispatcher.Post(producer);
   dispatcher.Post(consumer);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), async2::Ready());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(producer_index, kNumMsgs);
   EXPECT_EQ(consumer_index, kNumMsgs);
 }

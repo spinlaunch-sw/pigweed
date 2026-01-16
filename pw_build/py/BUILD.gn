@@ -27,6 +27,7 @@ pw_python_package("workflows") {
     "pw_build/__init__.py",
     "pw_build/workflows/bazel_driver.py",
     "pw_build/workflows/build_driver.py",
+    "pw_build/workflows/build_plugin.py",
     "pw_build/workflows/describe.py",
     "pw_build/workflows/launcher.py",
     "pw_build/workflows/manager.py",
@@ -137,7 +138,8 @@ pw_python_package("pigweed_upstream_build") {
     }
   }
   sources = [
-    "pigweed_upstream_build/main.py",
+    "pigweed_upstream_build/__init__.py",
+    "pigweed_upstream_build/__main__.py",
     "pw_build/project_builder_presubmit_runner.py",
   ]
   python_deps = [

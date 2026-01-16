@@ -28,8 +28,15 @@ impl regs::BaseAddress for Uart {
 impl uart_16550_regs::Uart16550BaseAddress for Uart {}
 
 impl Uart {
-    pub const fn new(base_address: usize) -> Uart {
-        Self { base_address }
+    #[must_use]
+    pub fn new(base_address: usize) -> Uart {
+        let instance = Self { base_address };
+
+        let mut ier = uart_16550_regs::Ier;
+        // Enable the Received Data Available Interrupt.
+        ier.write(&instance, ier.read(&instance).with_erbfi(true));
+
+        instance
     }
 
     pub fn enable_loopback(&mut self) {
@@ -38,9 +45,9 @@ impl Uart {
         mcr.write(self, val);
         log_if::debug_if!(
             LOG_UART,
-            "set MCR to {:02x},  should be {:02x}",
-            mcr.read(self).0 as u32,
-            val.0 as u32
+            "set MCR to {:#04x}, should be {:#04x}",
+            mcr.read(self).0 as u8,
+            val.0 as u8
         );
     }
 

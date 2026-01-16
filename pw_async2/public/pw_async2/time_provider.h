@@ -41,7 +41,7 @@ void AssertTimeFutureObjectsAllGone(bool empty);
 
 }  // namespace internal
 
-/// @submodule{pw_async2,pendables}
+/// @submodule{pw_async2,time}
 
 template <typename Clock>
 class TimeFuture;
@@ -120,7 +120,7 @@ class TimeProvider : public chrono::VirtualClock<Clock> {
 /// used with any `TimeProvider` with a compatible `Clock` type.
 template <typename Clock>
 class [[nodiscard]] TimeFuture
-    : public experimental::Future<TimeFuture<Clock>,
+    : public internal::FutureBase<TimeFuture<Clock>,
                                   typename Clock::time_point>,
       public IntrusiveForwardList<TimeFuture<Clock>>::Item {
  public:
@@ -182,7 +182,7 @@ class [[nodiscard]] TimeFuture
 
  private:
   using Base =
-      experimental::Future<TimeFuture<Clock>, typename Clock::time_point>;
+      internal::FutureBase<TimeFuture<Clock>, typename Clock::time_point>;
   friend Base;
   friend class TimeProvider<Clock>;
 
@@ -286,11 +286,11 @@ void TimeProvider<Clock>::RunExpired(typename Clock::time_point now) {
       DoInvokeAt(futures_.front().expiration_);
       return;
     }
-    std::move(futures_.front().waker_).Wake();
+    futures_.front().waker_.Wake();
     futures_.pop_front();
   }
 }
 
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

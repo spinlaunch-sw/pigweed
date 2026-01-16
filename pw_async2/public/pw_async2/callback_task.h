@@ -16,6 +16,7 @@
 #include <functional>
 #include <type_traits>
 
+#include "pw_async2/future.h"
 #include "pw_async2/poll.h"
 #include "pw_async2/task.h"
 #include "pw_function/function.h"
@@ -23,110 +24,84 @@
 namespace pw::async2 {
 namespace internal {
 
-template <typename T = ReadyType, bool kReschedule = false>
-class CallbackTask : public Task {
+template <typename FutureType>
+using CallbackType = std::conditional_t<
+    std::is_same_v<typename FutureType::value_type, ReadyType>,
+    Function<void()>,
+    Function<void(typename FutureType::value_type)>>;
+
+}  // namespace internal
+
+/// @submodule{pw_async2,tasks}
+
+/// A `Task` which pends a future and invokes a provided callback
+/// with its output when it returns `Ready`.
+///
+/// A `CallbackTask` terminates after the underlying future returns
+/// `Ready` and can be cleaned up afterwards.
+template <typename FutureType,
+          typename Func = internal::CallbackType<FutureType>>
+class CallbackTask final : public Task {
  public:
-  using ValueType = T;
-  using Pendable = Function<Poll<T>(Context&)>;
+  using value_type = typename FutureType::value_type;
 
-  using Callback = std::conditional_t<std::is_same_v<T, ReadyType>,
-                                      Function<void()>,
-                                      Function<void(T)>>;
+  static_assert(Future<FutureType>,
+                "CallbackTask can only be used with Future types");
 
-  CallbackTask(Callback&& callback, Pendable&& pendable)
-      : callback_(std::move(callback)), pendable_(std::move(pendable)) {}
+  /// Creates a new `CallbackTask` which will run the `future` to completion
+  /// and then invoke the `callback` with the result.
+  constexpr CallbackTask(Func&& callback, FutureType&& future)
+      : Task(PW_ASYNC_TASK_NAME("CallbackTask")),
+        future_(std::move(future)),
+        callback_(std::move(callback)) {}
+
+  ~CallbackTask() override { Deregister(); }
+
+  /// Creates a new `CallbackTask` which will run the `future` to completion
+  /// and then invoke the `callback` with the result.
+  ///
+  /// This function constructs the `FutureType` in-place from `future_args`.
+  template <typename Callback, typename... Args>
+  static constexpr auto Emplace(Callback&& callback, Args&&... future_args) {
+    static_assert(sizeof...(Args) >= 1u,
+                  "Cannot default construct a Future with Emplace");
+    return CallbackTask<FutureType, Callback>(
+        std::forward<Callback>(callback), std::forward<Args>(future_args)...);
+  }
 
  private:
+  template <typename, typename>
+  friend class CallbackTask;
+
+  template <typename... Args>
+  constexpr CallbackTask(Func&& callback, Args&&... future_args)
+      : future_(std::forward<Args>(future_args)...),
+        callback_(std::move(callback)) {}
+
   Poll<> DoPend(Context& cx) final {
-    Poll<T> poll = pendable_(cx);
+    Poll<value_type> poll = future_.Pend(cx);
     if (poll.IsPending()) {
       return Pending();
     }
 
-    if constexpr (std::is_same_v<T, ReadyType>) {
+    if constexpr (std::is_same_v<value_type, ReadyType>) {
       callback_();
     } else {
       callback_(std::move(*poll));
     }
 
-    if constexpr (kReschedule) {
-      cx.ReEnqueue();
-      return Pending();
-    } else {
-      return Ready();
-    }
+    return Ready();
   }
 
-  Callback callback_;
-  Pendable pendable_;
+  FutureType future_;
+  Func callback_;
 };
 
-}  // namespace internal
+template <typename FutureType, typename Func>
+CallbackTask(Func&&, FutureType&&) -> CallbackTask<FutureType, Func>;
 
-/// @submodule{pw_async2,adapters}
+// TODO: b/458069794 - Add StreamCallbackTask.
 
-/// A ``Task`` which pends a pendable function and invokes a provided callback
-/// with its output when it returns ``Ready``.
-///
-/// A ``OneshotCallbackTask`` terminates after the underlying pendable returns
-/// ``Ready`` for the first time. Following this, the pendable will no longer be
-/// polled, and the callback function will not be invoked again.
-template <typename T = ReadyType>
-using OneshotCallbackTask = internal::CallbackTask<T, false>;
-
-/// A ``Task`` which pends a pendable function and invokes a provided callback
-/// with its output when it returns ``Ready``.
-///
-/// A ``RecurringCallbackTask`` never completes; it reschedules itself after
-/// each ``Ready`` returned by the underlying pendable. This makes it suitable
-/// to interface with pendables which continually return values, such as a data
-/// stream.
-template <typename T = ReadyType>
-using RecurringCallbackTask = internal::CallbackTask<T, true>;
-
-template <auto kFunc,
-          typename Callback,
-          typename T = typename UnwrapPoll<
-              std::invoke_result_t<decltype(kFunc), Context&>>::Type>
-OneshotCallbackTask<T> OneshotCallbackTaskFor(Callback&& callback) {
-  return OneshotCallbackTask<T>(std::forward<Callback>(callback),
-                                std::forward<decltype(kFunc)>(kFunc));
-}
-
-template <
-    auto kMemberFunc,
-    typename Class,
-    typename Callback,
-    typename T = typename UnwrapPoll<
-        std::invoke_result_t<decltype(kMemberFunc), Class&, Context&>>::Type>
-OneshotCallbackTask<T> OneshotCallbackTaskFor(Class& obj, Callback&& callback) {
-  return OneshotCallbackTask<T>(
-      std::forward<Callback>(callback),
-      [&obj](Context& cx) { return std::invoke(kMemberFunc, &obj, cx); });
-}
-
-template <auto kFunc,
-          typename Callback,
-          typename T = typename UnwrapPoll<
-              std::invoke_result_t<decltype(kFunc), Context&>>::Type>
-RecurringCallbackTask<T> RecurringCallbackTaskFor(Callback&& callback) {
-  return RecurringCallbackTask<T>(std::forward<Callback>(callback),
-                                  std::forward<decltype(kFunc)>(kFunc));
-}
-
-template <
-    auto kMemberFunc,
-    typename Class,
-    typename Callback,
-    typename T = typename UnwrapPoll<
-        std::invoke_result_t<decltype(kMemberFunc), Class&, Context&>>::Type>
-RecurringCallbackTask<T> RecurringCallbackTaskFor(Class& obj,
-                                                  Callback&& callback) {
-  return RecurringCallbackTask<T>(
-      std::forward<Callback>(callback),
-      [&obj](Context& cx) { return std::invoke(kMemberFunc, &obj, cx); });
-}
-
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

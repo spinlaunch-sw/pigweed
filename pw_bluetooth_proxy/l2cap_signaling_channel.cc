@@ -22,7 +22,6 @@
 #include "pw_bluetooth/l2cap_frames.emb.h"
 #include "pw_bluetooth_proxy/direction.h"
 #include "pw_bluetooth_proxy/internal/l2cap_channel_manager.h"
-#include "pw_bluetooth_proxy/internal/l2cap_coc_internal.h"
 #include "pw_bluetooth_proxy/internal/multibuf.h"
 #include "pw_bluetooth_proxy/l2cap_channel_common.h"
 #include "pw_bytes/span.h"
@@ -41,52 +40,35 @@ uint16_t ChannelIdForTransport(AclTransportType transport) {
 }
 }  // namespace
 
-L2capSignalingChannel L2capSignalingChannel::Create(
-    L2capChannelManager& l2cap_channel_manager,
-    uint16_t connection_handle,
-    AclTransportType transport) {
-  L2capSignalingChannel channel(
-      l2cap_channel_manager, connection_handle, transport);
-  channel.Init();
-  return channel;
-}
-
 L2capSignalingChannel::L2capSignalingChannel(
-    L2capChannelManager& l2cap_channel_manager,
-    uint16_t connection_handle,
-    AclTransportType transport)
-    : BasicL2capChannel(l2cap_channel_manager,
-                        /*rx_multibuf_allocator=*/nullptr,
-                        /*connection_handle=*/connection_handle,
-                        /*transport*/ transport,
-                        /*local_cid=*/ChannelIdForTransport(transport),
-                        /*remote_cid=*/ChannelIdForTransport(transport),
-                        /*payload_from_controller_fn=*/nullptr,
-                        /*payload_from_host_fn=*/nullptr,
-                        /*event_fn=*/nullptr),
-      l2cap_channel_manager_(l2cap_channel_manager) {}
+    L2capChannelManager& l2cap_channel_manager)
+    : l2cap_channel_manager_(l2cap_channel_manager) {}
 
-L2capSignalingChannel::L2capSignalingChannel(L2capSignalingChannel&& other)
-    : BasicL2capChannel(static_cast<BasicL2capChannel&&>(other)),
-      l2cap_channel_manager_(other.l2cap_channel_manager_) {
-  std::lock_guard lock(mutex_);
-  std::lock_guard other_lock(other.mutex_);
-  pending_connections_ = std::move(other.pending_connections_);
-  pending_configurations_ = std::move(other.pending_configurations_);
-  next_identifier_ = std::exchange(other.next_identifier_, 0);
-}
+Status L2capSignalingChannel::Init(uint16_t connection_handle,
+                                   AclTransportType transport) {
+  Allocator& allocator = l2cap_channel_manager_.impl().allocator();
 
-L2capSignalingChannel& L2capSignalingChannel::operator=(
-    L2capSignalingChannel&& other) {
-  BasicL2capChannel::operator=(static_cast<BasicL2capChannel&&>(other));
-
-  std::lock_guard lock(mutex_);
-  std::lock_guard other_lock(other.mutex_);
-  pending_connections_ = std::move(other.pending_connections_);
-  pending_configurations_ = std::move(other.pending_configurations_);
-  next_identifier_ = std::exchange(other.next_identifier_, 0);
-
-  return *this;
+  UniquePtr<L2capChannel> channel = allocator.MakeUnique<L2capChannel>(
+      l2cap_channel_manager_,
+      /*rx_multibuf_allocator=*/nullptr,
+      connection_handle,
+      transport,
+      /*local_cid=*/ChannelIdForTransport(transport),
+      /*remote_cid=*/ChannelIdForTransport(transport),
+      /*event_fn=*/nullptr);
+  if (channel == nullptr) {
+    return Status::ResourceExhausted();
+  }
+  PW_TRY(channel->InitBasic(
+      pw::bind_member<&L2capSignalingChannel::HandlePayloadFromController>(
+          this),
+      pw::bind_member<&L2capSignalingChannel::HandlePayloadFromHost>(this)));
+  // Registers channel with L2capChannelManager.
+  PW_TRY(channel->Start());
+  // The channel has been registered with L2capChannelManager, which now
+  // owns it.
+  channel_ = channel.Release();
+  return OkStatus();
 }
 
 bool L2capSignalingChannel::OnCFramePayload(
@@ -126,7 +108,8 @@ bool L2capSignalingChannel::OnCFramePayload(
 
     // LE C-frames contain one signaling packet, while BR/EDR C-frames can
     // contain multiple.
-  } while (transport() == AclTransportType::kBrEdr && !cframe_payload.empty());
+  } while (channel_->transport() == AclTransportType::kBrEdr &&
+           !cframe_payload.empty());
 
   if (!cframe_payload.empty()) {
     PW_LOG_WARN("Received C-frame with extra bytes, forwarding to host");
@@ -143,42 +126,18 @@ bool L2capSignalingChannel::OnCFramePayload(
   return any_commands_consumed.value();
 }
 
-bool L2capSignalingChannel::DoHandlePduFromController(
-    pw::span<uint8_t> cframe) {
-  Result<emboss::CFrameView> cframe_view =
-      MakeEmbossView<emboss::CFrameView>(cframe);
-  if (!cframe_view.ok()) {
-    PW_LOG_ERROR(
-        "Buffer is too small for C-frame. So will forward to host without "
-        "processing.");
-    return false;
-  }
-
+bool L2capSignalingChannel::HandlePayloadFromController(
+    pw::span<uint8_t> payload) {
   // TODO: https://pwbug.dev/360929142 - "If a device receives a C-frame that
   // exceeds its L2CAP_SIG_MTU_SIZE then it shall send an
   // L2CAP_COMMAND_REJECT_RSP packet containing the supported
   // L2CAP_SIG_MTU_SIZE." We should consider taking the signaling MTU in the
   // ProxyHost constructor.
-  return OnCFramePayload(
-      Direction::kFromController,
-      pw::span(cframe_view->payload().BackingStorage().data(),
-               cframe_view->payload().BackingStorage().SizeInBytes()));
+  return OnCFramePayload(Direction::kFromController, payload);
 }
 
-bool L2capSignalingChannel::HandlePduFromHost(pw::span<uint8_t> cframe) {
-  Result<emboss::CFrameView> cframe_view =
-      MakeEmbossView<emboss::CFrameView>(cframe);
-  if (!cframe_view.ok()) {
-    PW_LOG_ERROR(
-        "Buffer is too small for C-frame. So will forward to controller "
-        "without processing.");
-    return false;
-  }
-
-  return OnCFramePayload(
-      Direction::kFromHost,
-      pw::span(cframe_view->payload().BackingStorage().data(),
-               cframe_view->payload().BackingStorage().SizeInBytes()));
+bool L2capSignalingChannel::HandlePayloadFromHost(pw::span<uint8_t> payload) {
+  return OnCFramePayload(Direction::kFromHost, payload);
 }
 
 bool L2capSignalingChannel::HandleL2capSignalingCommand(
@@ -314,7 +273,7 @@ void L2capSignalingChannel::HandleConnectionRsp(
           L2capChannelConnectionInfo{
               .direction = request_direction,
               .psm = pending_it->psm,
-              .connection_handle = connection_handle(),
+              .connection_handle = channel_->connection_handle(),
               .remote_cid = remote,
               .local_cid = local,
           });
@@ -380,7 +339,7 @@ void L2capSignalingChannel::HandleConfigurationReq(
               "destination_cid=%#x identifier=%d L2capMtuConfigurationOption "
               "is "
               "malformed, dropping the configuration options.",
-              connection_handle(),
+              channel_->connection_handle(),
               cmd.destination_cid().Read(),
               cmd.command_header().identifier().Read());
           return;
@@ -396,7 +355,7 @@ void L2capSignalingChannel::HandleConfigurationReq(
       .identifier = cmd.command_header().identifier().Read(),
       .info = L2capChannelConfigurationInfo{
           .direction = direction,
-          .connection_handle = connection_handle(),
+          .connection_handle = channel_->connection_handle(),
           .remote_cid = direction == Direction::kFromHost
                             ? cid
                             : static_cast<uint16_t>(0),
@@ -463,7 +422,7 @@ void L2capSignalingChannel::HandleDisconnectionRsp(
 
   l2cap_channel_manager_.HandleDisconnectionCompleteLocked(
       L2capStatusTracker::DisconnectParams{
-          .connection_handle = connection_handle(),
+          .connection_handle = channel_->connection_handle(),
           .remote_cid = remote,
           .local_cid = local});
 }
@@ -487,15 +446,10 @@ bool L2capSignalingChannel::HandleFlowControlCreditInd(
   // channels lock is already held so we should use the *Locked variant to
   // lookup.
   L2capChannel* found_channel =
-      l2cap_channel_manager_.FindChannelByRemoteCidLocked(connection_handle(),
-                                                          cmd.cid().Read());
+      l2cap_channel_manager_.FindChannelByRemoteCidLocked(
+          channel_->connection_handle(), cmd.cid().Read());
   if (found_channel) {
-    // If this L2CAP_FLOW_CONTROL_CREDIT_IND is addressed to a channel managed
-    // by the proxy, it must be an L2CAP connection-oriented channel.
-    // TODO: https://pwbug.dev/360929142 - Validate type in case remote peer
-    // sends indication addressed to wrong CID.
-    L2capCocInternal* coc_ptr = static_cast<L2capCocInternal*>(found_channel);
-    coc_ptr->AddTxCredits(cmd.credits().Read());
+    std::ignore = found_channel->AddTxCredits(cmd.credits().Read());
     return true;
   }
   return false;
@@ -536,8 +490,8 @@ Status L2capSignalingChannel::SendFlowControlCreditInd(
   command_view->credits().Write(credits);
   PW_CHECK(command_view->Ok());
 
-  StatusWithMultiBuf s =
-      WriteDuringRx(std::move(MultiBufAdapter::Unwrap(command.value())));
+  StatusWithMultiBuf s = channel_->WriteDuringRx(
+      std::move(MultiBufAdapter::Unwrap(command.value())));
 
   return s.status;
 }

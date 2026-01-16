@@ -16,20 +16,21 @@
 #include "pw_async2/channel.h"
 #include "pw_async2/coro.h"
 #include "pw_async2/coro_or_else_task.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/try.h"
 #include "pw_containers/vector.h"
 #include "pw_unit_test/framework.h"
 
 namespace {
 
+using pw::async2::ChannelStorage;
 using pw::async2::Coro;
 using pw::async2::CoroContext;
 using pw::async2::CoroOrElseTask;
-using pw::async2::experimental::CreateDynamicChannel;
-using pw::async2::experimental::Receiver;
-using pw::async2::experimental::Sender;
-using pw::async2::experimental::StaticChannel;
+using pw::async2::CreateMpscChannel;
+using pw::async2::CreateSpscChannel;
+using pw::async2::Receiver;
+using pw::async2::Sender;
 
 Coro<pw::Status> Producer(CoroContext&,
                           Sender<int> sender,
@@ -71,19 +72,21 @@ Coro<pw::Status> DisconnectingConsumer(CoroContext&,
 
 TEST(DynamicChannel, SingleProducerSingleConsumer) {
   pw::allocator::test::AllocatorForTest<1024> alloc;
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
 
   CoroContext coro_cx(alloc);
 
-  auto channel = CreateDynamicChannel<int>(alloc, 3);
-  ASSERT_TRUE(channel.has_value());
+  auto result = CreateSpscChannel<int>(alloc, 3);
+  ASSERT_TRUE(result.has_value());
+  auto&& [channel, sender, receiver] = *result;
+  channel.Release();
 
   pw::Vector<int, 10> out;
 
-  auto producer = CoroOrElseTask(
-      Producer(coro_cx, channel->CreateSender(), 1, 6), [](pw::Status) {});
-  auto consumer = CoroOrElseTask(
-      Consumer(coro_cx, channel->CreateReceiver(), out), [](pw::Status) {});
+  auto producer = CoroOrElseTask(Producer(coro_cx, std::move(sender), 1, 6),
+                                 [](pw::Status) {});
+  auto consumer = CoroOrElseTask(Consumer(coro_cx, std::move(receiver), out),
+                                 [](pw::Status) {});
 
   dispatcher.Post(producer);
   dispatcher.Post(consumer);
@@ -101,21 +104,24 @@ TEST(DynamicChannel, SingleProducerSingleConsumer) {
 
 TEST(DynamicChannel, MultiProducerSingleConsumer) {
   pw::allocator::test::AllocatorForTest<1024> alloc;
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
 
   CoroContext coro_cx(alloc);
 
-  auto channel = CreateDynamicChannel<int>(alloc, 3);
-  ASSERT_TRUE(channel.has_value());
+  auto result = CreateMpscChannel<int>(alloc, 3);
+  ASSERT_TRUE(result.has_value());
+  auto&& [channel, receiver] = *result;
 
   pw::Vector<int, 10> out;
 
   auto producer_1 = CoroOrElseTask(
-      Producer(coro_cx, channel->CreateSender(), 1, 3), [](pw::Status) {});
+      Producer(coro_cx, channel.CreateSender(), 1, 3), [](pw::Status) {});
   auto producer_2 = CoroOrElseTask(
-      Producer(coro_cx, channel->CreateSender(), 4, 6), [](pw::Status) {});
-  auto consumer = CoroOrElseTask(
-      Consumer(coro_cx, channel->CreateReceiver(), out), [](pw::Status) {});
+      Producer(coro_cx, channel.CreateSender(), 4, 6), [](pw::Status) {});
+  auto consumer = CoroOrElseTask(Consumer(coro_cx, std::move(receiver), out),
+                                 [](pw::Status) {});
+
+  channel.Release();
 
   dispatcher.Post(producer_1);
   dispatcher.Post(producer_2);
@@ -132,20 +138,22 @@ TEST(DynamicChannel, MultiProducerSingleConsumer) {
 
 TEST(DynamicChannel, ReceiverDisconnects) {
   pw::allocator::test::AllocatorForTest<1024> alloc;
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
 
   CoroContext coro_cx(alloc);
 
-  auto channel = CreateDynamicChannel<int>(alloc, 3);
-  ASSERT_TRUE(channel.has_value());
+  auto result = CreateSpscChannel<int>(alloc, 3);
+  ASSERT_TRUE(result.has_value());
+  auto&& [channel, sender, receiver] = *result;
+  channel.Release();
 
   pw::Status producer_status;
   auto producer =
-      CoroOrElseTask(Producer(coro_cx, channel->CreateSender(), 1, 10),
+      CoroOrElseTask(Producer(coro_cx, std::move(sender), 1, 10),
                      [&](pw::Status status) { producer_status = status; });
-  auto consumer = CoroOrElseTask(
-      DisconnectingConsumer(coro_cx, channel->CreateReceiver(), 3),
-      [](pw::Status) {});
+  auto consumer =
+      CoroOrElseTask(DisconnectingConsumer(coro_cx, std::move(receiver), 3),
+                     [](pw::Status) {});
 
   dispatcher.Post(producer);
   dispatcher.Post(consumer);
@@ -157,17 +165,19 @@ TEST(DynamicChannel, ReceiverDisconnects) {
 
 TEST(StaticChannel, SingleProducerSingleConsumer) {
   pw::allocator::test::AllocatorForTest<1024> alloc;
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
 
   CoroContext coro_cx(alloc);
 
-  StaticChannel<int, 3> channel;
+  ChannelStorage<int, 3> storage;
+  auto [channel, sender, receiver] = CreateSpscChannel<int>(storage);
+  channel.Release();
   pw::Vector<int, 10> out;
 
-  auto producer = CoroOrElseTask(
-      Producer(coro_cx, channel.CreateSender(), 1, 6), [](pw::Status) {});
-  auto consumer = CoroOrElseTask(
-      Consumer(coro_cx, channel.CreateReceiver(), out), [](pw::Status) {});
+  auto producer = CoroOrElseTask(Producer(coro_cx, std::move(sender), 1, 6),
+                                 [](pw::Status) {});
+  auto consumer = CoroOrElseTask(Consumer(coro_cx, std::move(receiver), out),
+                                 [](pw::Status) {});
 
   dispatcher.Post(producer);
   dispatcher.Post(consumer);

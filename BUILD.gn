@@ -497,9 +497,10 @@ group("coverage") {
 
 pw_python_group("python") {
   python_deps = [
+    "$dir_pw_env_setup:pip_install_pigweed_upstream_build($pw_build_PYTHON_TOOLCHAIN)",
+    "$dir_pw_env_setup:pip_install_target_support_packages($pw_build_PYTHON_TOOLCHAIN)",
     "$dir_pw_env_setup:python($pw_build_PYTHON_TOOLCHAIN)",
     "$dir_pw_env_setup:sample_project_action($pw_build_PYTHON_TOOLCHAIN)",
-    "$dir_pw_env_setup:target_support_packages($pw_build_PYTHON_TOOLCHAIN)",
   ]
 }
 
@@ -611,10 +612,6 @@ if (current_toolchain != default_toolchain) {
         "$dir_pw_i2c_linux:pw_i2c_linux_cli",
         "$dir_pw_spi_linux:pw_spi_linux_cli",
       ]
-    }
-
-    if (current_os == "linux" || current_os == "mac") {
-      deps += [ "$dir_pw_async2/examples:interrupt" ]
     }
   }
 

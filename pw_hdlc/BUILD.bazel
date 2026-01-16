@@ -188,7 +188,7 @@ cc_library(
     strip_include_prefix = "public",
     deps = [
         ":pw_hdlc",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_bytes",
         "//pw_channel",
@@ -214,6 +214,7 @@ pw_cc_test(
         ":router",
         "//pw_allocator:testing",
         "//pw_async2:pend_func_task",
+        "//pw_async2:testing",
         "//pw_bytes",
         "//pw_channel:forwarding_channel",
         "//pw_channel:loopback_channel",

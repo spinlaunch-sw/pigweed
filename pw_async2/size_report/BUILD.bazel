@@ -32,7 +32,7 @@ cc_library(
     deps = [
         "//pw_allocator:allocator",
         "//pw_allocator:first_fit",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:pendable",
         "//pw_bloat:bloat_this_binary",
         "//pw_containers:intrusive_forward_list",
@@ -59,7 +59,9 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_bloat:bloat_this_binary",
     ],
@@ -72,7 +74,9 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_bloat:bloat_this_binary",
     ],
@@ -85,8 +89,10 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
         "//pw_async2:once_sender",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_bloat:bloat_this_binary",
     ],
@@ -102,8 +108,10 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
         "//pw_async2:once_sender",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_bloat:bloat_this_binary",
     ],
@@ -116,8 +124,10 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
         "//pw_async2:coro",
-        "//pw_async2:dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_bloat:bloat_this_binary",
     ],
@@ -130,7 +140,9 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_async2:select",
         "//pw_bloat:bloat_this_binary",
@@ -148,7 +160,9 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_async2:select",
         "//pw_bloat:bloat_this_binary",
@@ -163,7 +177,9 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_async2:select",
         "//pw_bloat:bloat_this_binary",
@@ -178,9 +194,28 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
         "//pw_async2:pendable",
         "//pw_async2:select",
+        "//pw_bloat:bloat_this_binary",
+        "//pw_log",
+    ],
+)
+
+pw_cc_size_binary(
+    name = "join_size_report_base",
+    srcs = ["join.cc"],
+    defines = [],
+    deps = [
+        ":size_report",
+        "//pw_assert:check",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:join",
+        "//pw_async2:pend_func_task",
+        "//pw_async2:value_future",
         "//pw_bloat:bloat_this_binary",
         "//pw_log",
     ],
@@ -193,9 +228,11 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
         "//pw_async2:join",
-        "//pw_async2:pendable",
+        "//pw_async2:pend_func_task",
+        "//pw_async2:value_future",
         "//pw_bloat:bloat_this_binary",
         "//pw_log",
     ],
@@ -211,11 +248,61 @@ pw_cc_size_binary(
     deps = [
         ":size_report",
         "//pw_assert:check",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
         "//pw_async2:join",
-        "//pw_async2:pendable",
+        "//pw_async2:pend_func_task",
+        "//pw_async2:value_future",
         "//pw_bloat:bloat_this_binary",
         "//pw_log",
+    ],
+)
+
+pw_cc_size_binary(
+    name = "value_future",
+    srcs = ["value_future.cc"],
+    defines = ["_PW_ASYNC2_SIZE_REPORT_VALUE_FUTURE=1"],
+    deps = [
+        ":size_report",
+        "//pw_assert:check",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
+        "//pw_async2:value_future",
+        "//pw_bloat:bloat_this_binary",
+    ],
+)
+
+pw_cc_size_binary(
+    name = "value_future_incremental",
+    srcs = ["value_future.cc"],
+    defines = [
+        "_PW_ASYNC2_SIZE_REPORT_VALUE_FUTURE=1",
+        "_PW_ASYNC2_SIZE_REPORT_VALUE_FUTURE_INCREMENTAL=1",
+    ],
+    deps = [
+        ":size_report",
+        "//pw_assert:check",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
+        "//pw_async2:value_future",
+        "//pw_bloat:bloat_this_binary",
+    ],
+)
+
+pw_cc_size_binary(
+    name = "void_future",
+    srcs = ["value_future.cc"],
+    defines = ["_PW_ASYNC2_SIZE_REPORT_VOID_FUTURE=1"],
+    deps = [
+        ":size_report",
+        "//pw_assert:check",
+        "//pw_async2",
+        "//pw_async2:basic_dispatcher",
+        "//pw_async2:pend_func_task",
+        "//pw_async2:value_future",
+        "//pw_bloat:bloat_this_binary",
     ],
 )
 
@@ -277,15 +364,15 @@ pw_size_diff(
 
 pw_size_diff(
     name = "join_row",
-    base = ":async2_core",
-    label = "Size of calling Join() with several pendables of the same type",
+    base = ":join_size_report_base",
+    label = "Size of calling Join() with several futures of the same type",
     target = ":join_size_report",
 )
 
 pw_size_diff(
     name = "incremental_join_row",
     base = ":join_size_report",
-    label = "Size of an additional a call to Join() with pendables of different types",
+    label = "Size of an additional a call to Join() with futures of different types",
     target = ":incremental_join_size_report",
 )
 
@@ -316,5 +403,125 @@ pw_size_table(
         ":select_comparison_row",
         ":join_row",
         ":incremental_join_row",
+    ],
+)
+
+pw_size_diff(
+    name = "value_future_row",
+    base = ":async2_core",
+    label = "Size of ``ValueFuture``",
+    target = ":value_future",
+)
+
+pw_size_diff(
+    name = "incremental_value_future_row",
+    base = ":value_future",
+    label = "Cost of additional ``ValueFuture`` template specialization",
+    target = ":value_future_incremental",
+)
+
+pw_size_diff(
+    name = "void_future_row",
+    base = ":async2_core",
+    label = "Size of ``VoidFuture`` (``ValueFuture<void>``)",
+    target = ":void_future",
+)
+
+pw_size_table(
+    name = "value_future_table",
+    reports = [
+        ":value_future_row",
+        ":incremental_value_future_row",
+        ":void_future_row",
+    ],
+)
+
+CHANNEL_DEPS = [
+    ":size_report",
+    "//pw_async2:basic_dispatcher",
+    "//pw_async2:channel",
+    "//pw_async2",
+    "//pw_async2:pend_func_task",
+    "//pw_bloat:bloat_this_binary",
+]
+
+pw_cc_size_binary(
+    name = "channel_static_size_report",
+    srcs = ["channel_size_report.cc"],
+    defines = ["PW_ASYNC2_CHANNEL_SIZE_REPORT_STATIC_INT"],
+    deps = CHANNEL_DEPS,
+)
+
+pw_cc_size_binary(
+    name = "channel_static_unsigned_incremental",
+    srcs = ["channel_size_report.cc"],
+    defines = ["PW_ASYNC2_CHANNEL_SIZE_REPORT_STATIC_INT_AND_UINT"],
+    deps = CHANNEL_DEPS,
+)
+
+pw_cc_size_binary(
+    name = "channel_static_move_only_incremental",
+    srcs = ["channel_size_report.cc"],
+    defines = ["PW_ASYNC2_CHANNEL_SIZE_REPORT_STATIC_INT_AND_MOVE_ONLY"],
+    deps = CHANNEL_DEPS,
+)
+
+pw_cc_size_binary(
+    name = "channel_dynamic_size_report",
+    srcs = ["channel_size_report.cc"],
+    defines = ["PW_ASYNC2_CHANNEL_SIZE_REPORT_DYNAMIC_INT"],
+    deps = CHANNEL_DEPS,
+)
+
+pw_cc_size_binary(
+    name = "channel_dynamic_static_size_report",
+    srcs = ["channel_size_report.cc"],
+    defines = ["PW_ASYNC2_CHANNEL_SIZE_REPORT_DYNAMIC_STATIC_INT"],
+    deps = CHANNEL_DEPS,
+)
+
+pw_size_diff(
+    name = "channel_static_row",
+    base = ":async2_core",
+    label = "Size of static ``MpmcChannel``",
+    target = ":channel_static_size_report",
+)
+
+pw_size_diff(
+    name = "channel_static_unsigned_row",
+    base = ":channel_static_size_report",
+    label = "Cost of additional static ``MpmcChannel<unsigned>`` instantiation",
+    target = ":channel_static_unsigned_incremental",
+)
+
+pw_size_diff(
+    name = "channel_static_move_only_row",
+    base = ":channel_static_size_report",
+    label = "Cost of additional static ``MpmcChannel<MoveOnly>`` instantiation",
+    target = ":channel_static_move_only_incremental",
+)
+
+pw_size_diff(
+    name = "channel_dynamic_row",
+    base = ":async2_core",
+    label = "Size of dynamic ``MpmcChannel``",
+    target = ":channel_dynamic_size_report",
+)
+
+pw_size_diff(
+    name = "channel_dynamic_static_row",
+    base = ":channel_dynamic_size_report",
+    label = "Cost of static ``MpmcChannel`` when dynamic of same type is present",
+    target = ":channel_dynamic_static_size_report",
+)
+
+pw_size_table(
+    name = "channel_size_report",
+    reports = [
+        ":channel_static_row",
+        ":channel_static_unsigned_row",
+        ":channel_static_move_only_row",
+        ":channel_dynamic_row",
+        ":channel_dynamic_static_row",
     ],
 )

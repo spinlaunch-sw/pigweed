@@ -16,7 +16,7 @@
 
 #include "pico/stdlib.h"
 #include "pw_assert/check.h"
-#include "pw_async2/dispatcher_base.h"
+#include "pw_async2/dispatcher.h"
 #include "pw_log/log.h"
 #include "pw_multibuf/allocator.h"
 #include "pw_multibuf/allocator_async.h"
@@ -42,9 +42,7 @@ Waker global_chars_available_waker;
 void InitStdio() {
   stdio_init_all();
   stdio_set_chars_available_callback(
-      []([[maybe_unused]] void* arg) {
-        std::move(global_chars_available_waker).Wake();
-      },
+      []([[maybe_unused]] void* arg) { global_chars_available_waker.Wake(); },
       nullptr);
 }
 

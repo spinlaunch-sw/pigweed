@@ -17,6 +17,7 @@
 #include <array>
 
 #include "pw_async/fake_dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/poll.h"
 #include "pw_bluetooth/uuid.h"
@@ -91,7 +92,7 @@ class CentralTest : public ::testing::Test {
     EXPECT_FALSE(scan_pend_result.has_value());
 
     async_dispatcher().RunUntilIdle();
-    EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+    async2_dispatcher().RunToCompletion();
 
     if (!scan_pend_result.has_value()) {
       ADD_FAILURE();
@@ -120,11 +121,13 @@ class CentralTest : public ::testing::Test {
   pw::async::test::FakeDispatcher& async_dispatcher() {
     return async_dispatcher_;
   }
-  pw::async2::Dispatcher& async2_dispatcher() { return async2_dispatcher_; }
+  pw::async2::RunnableDispatcher& async2_dispatcher() {
+    return async2_dispatcher_;
+  }
 
  private:
   pw::async::test::FakeDispatcher async_dispatcher_;
-  pw::async2::Dispatcher async2_dispatcher_;
+  pw::async2::DispatcherForTest async2_dispatcher_;
   bt::gap::testing::FakeAdapter adapter_{async_dispatcher_};
 
   pw::multibuf::test::SimpleAllocatorForTest</*kDataSizeBytes=*/2024,
@@ -149,7 +152,7 @@ TEST_F(CentralTest, ScanOneResultAndStopScanSuccess) {
   PendFuncTask scan_handle_task =
       MakePendResultTask(scan_handle, scan_result_result);
   async2_dispatcher().Post(scan_handle_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
 
   const bool connectable = true;
   bt::gap::Peer* peer = peer_cache().NewPeer(kAddress0, connectable);
@@ -159,7 +162,7 @@ TEST_F(CentralTest, ScanOneResultAndStopScanSuccess) {
 
   adapter().fake_le()->NotifyScanResult(*peer);
 
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(scan_result_result.has_value());
   ASSERT_TRUE(scan_result_result.value().ok());
 
@@ -180,7 +183,7 @@ TEST_F(CentralTest, ScanOneResultAndStopScanSuccess) {
 
   // No more scan results should be received.
   async2_dispatcher().Post(scan_handle_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
   EXPECT_FALSE(scan_result_result.has_value());
   scan_handle_task.Deregister();
 
@@ -239,11 +242,11 @@ TEST_F(CentralTest, ScanErrorReceivedByScanHandle) {
   PendFuncTask scan_handle_task =
       MakePendResultTask(scan_handle, scan_result_result);
   async2_dispatcher().Post(scan_handle_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
 
   (*adapter().fake_le()->discovery_sessions().cbegin())->NotifyError();
 
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(scan_result_result.has_value());
   EXPECT_TRUE(scan_result_result.value().status().IsCancelled());
 }
@@ -267,7 +270,7 @@ TEST_F(CentralTest, ScanWithoutFiltersFails) {
         return Ready();
       });
   async2_dispatcher().Post(scan_receiver_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(scan_pend_result.has_value());
   ASSERT_TRUE(scan_pend_result.value().ok());
   ScanStartResult scan_start_result =
@@ -304,7 +307,7 @@ TEST_F(CentralTest, QueueMoreThanMaxScanResultsInScanHandleDropsOldest) {
         }
       });
   async2_dispatcher().Post(scan_handle_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
 
   const bool connectable = true;
   bt::gap::Peer* peer = peer_cache().NewPeer(kAddress0, connectable);
@@ -316,7 +319,7 @@ TEST_F(CentralTest, QueueMoreThanMaxScanResultsInScanHandleDropsOldest) {
     adapter().fake_le()->NotifyScanResult(*peer);
   }
 
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
   scan_handle_task.Deregister();
   ASSERT_EQ(scan_result_results.size(), Central::kMaxScanResultsQueueSize);
   // The first scan result should have been dropped.
@@ -340,11 +343,11 @@ TEST_F(CentralTest, CentralDestroyedBeforeScanHandle) {
   PendFuncTask scan_handle_task =
       MakePendResultTask(scan_handle, scan_result_result);
   async2_dispatcher().Post(scan_handle_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
 
   DestroyCentral();
 
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(scan_result_result.has_value());
   EXPECT_TRUE(scan_result_result.value().status().IsCancelled());
 
@@ -367,9 +370,9 @@ TEST_F(CentralTest, ConnectAndDisconnectSuccess) {
         return Ready();
       });
   async2_dispatcher().Post(connect_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
   async_dispatcher().RunUntilIdle();
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(connect_result.has_value());
   ASSERT_TRUE(connect_result->ok());
   ASSERT_TRUE(connect_result->value());
@@ -400,9 +403,9 @@ TEST_F(CentralTest, PendDisconnect) {
         return Ready();
       });
   async2_dispatcher().Post(connect_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
   async_dispatcher().RunUntilIdle();
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(connect_result.has_value());
   ASSERT_TRUE(connect_result->ok());
   ASSERT_TRUE(connect_result->value());
@@ -421,12 +424,12 @@ TEST_F(CentralTest, PendDisconnect) {
         return Ready();
       });
   async2_dispatcher().Post(disconnect_task);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsPending());
+  EXPECT_TRUE(async2_dispatcher().RunUntilStalled());
   ASSERT_FALSE(disconnect_reason.has_value());
 
   ASSERT_TRUE(adapter().fake_le()->Disconnect(peer->identifier()));
   ASSERT_EQ(adapter().fake_le()->connections().count(peer->identifier()), 0u);
-  EXPECT_TRUE(async2_dispatcher().RunUntilStalled().IsReady());
+  async2_dispatcher().RunToCompletion();
   ASSERT_TRUE(disconnect_reason.has_value());
   EXPECT_EQ(disconnect_reason.value(), DisconnectReason::kFailure);
 

@@ -15,7 +15,7 @@
 #include "pw_async2/waker_queue.h"
 
 #include "pw_async2/context.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/waker.h"
 #include "pw_unit_test/framework.h"
@@ -78,12 +78,12 @@ TEST(WakerQueue, Empty) {
   WakerQueue<4> queue;
   EXPECT_TRUE(queue.empty());
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& cx) {
     PW_ASYNC_STORE_WAKER(cx, queue, "Storing waker in queue");
     return Pending();
   });
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(task), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(task), Pending());
 
   EXPECT_EQ(queue.size(), 1u);
   EXPECT_FALSE(queue.empty());
@@ -95,12 +95,12 @@ TEST(WakerQueue, Full) {
   WakerQueue<1> queue;
   EXPECT_FALSE(queue.full());
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& cx) {
     PW_ASYNC_STORE_WAKER(cx, queue, "Storing waker in queue");
     return Pending();
   });
-  EXPECT_EQ(dispatcher.RunPendableUntilStalled(task), Pending());
+  EXPECT_EQ(dispatcher.RunInTaskUntilStalled(task), Pending());
 
   EXPECT_EQ(queue.size(), 1u);
   EXPECT_TRUE(queue.full());
@@ -116,7 +116,7 @@ TEST(WakerQueue, AddEmptyWakerFails) {
 
 TEST(WakerQueue, TryStore) {
   WakerQueue<1> queue;
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendFuncTask task_1([&](Context& cx) {
     EXPECT_TRUE(PW_ASYNC_TRY_STORE_WAKER(cx, queue, "Task 1 storing waker"));
@@ -128,10 +128,10 @@ TEST(WakerQueue, TryStore) {
   });
 
   dispatcher.Post(task_1);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   dispatcher.Post(task_2);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.WakeAll();
 }
@@ -140,7 +140,7 @@ TEST(WakerQueue, ReStoreExistingTask) {
   WakerQueue<2> queue;
   Waker out_of_band_waker;
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& cx) {
     EXPECT_TRUE(PW_ASYNC_TRY_STORE_WAKER(cx, queue, "Storing waker in queue"));
     EXPECT_TRUE(
@@ -148,49 +148,49 @@ TEST(WakerQueue, ReStoreExistingTask) {
     return Pending();
   });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   EXPECT_EQ(queue.size(), 1u);
 
   // Wake the task out of band, causing it to attempt to store in the queue
   // again.
-  std::move(out_of_band_waker).Wake();
+  out_of_band_waker.Wake();
   EXPECT_EQ(queue.size(), 1u);
 
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(queue.size(), 1u);
 
   // NOLINTNEXTLINE(bugprone-use-after-move)
-  std::move(out_of_band_waker).Wake();
+  out_of_band_waker.Wake();
   queue.WakeAll();
 }
 
 TEST(WakerQueue, WakeOne) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   QueuedReader reader;
   ReaderTask reader_task_1(reader);
   ReaderTask reader_task_2(reader);
 
   dispatcher.Post(reader_task_1);
   dispatcher.Post(reader_task_2);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(reader.queue.size(), 2u);
 
   reader.SetValueAndWakeOne(7);
   EXPECT_EQ(reader.queue.size(), 1u);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(reader_task_1.value, 7);
   EXPECT_EQ(reader_task_2.value, 0);
 
   reader.SetValueAndWakeOne(9);
   EXPECT_TRUE(reader.queue.empty());
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(reader_task_1.value, 7);
   EXPECT_EQ(reader_task_2.value, 9);
 }
 
 TEST(WakerQueue, WakeMany) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   QueuedReader reader;
   ReaderTask reader_task_1(reader);
   ReaderTask reader_task_2(reader);
@@ -199,18 +199,18 @@ TEST(WakerQueue, WakeMany) {
   dispatcher.Post(reader_task_1);
   dispatcher.Post(reader_task_2);
   dispatcher.Post(reader_task_3);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(reader.queue.size(), 3u);
 
   reader.SetValueAndWakeMany(7, /*tasks_to_wake=*/2);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(reader.queue.size(), 1u);
   EXPECT_EQ(reader_task_1.value, 7);
   EXPECT_EQ(reader_task_2.value, 7);
   EXPECT_EQ(reader_task_3.value, 0);
 
   reader.SetValueAndWakeMany(9, /*tasks_to_wake=*/2);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_TRUE(reader.queue.empty());
   EXPECT_EQ(reader_task_1.value, 7);
   EXPECT_EQ(reader_task_2.value, 7);
@@ -218,7 +218,7 @@ TEST(WakerQueue, WakeMany) {
 }
 
 TEST(WakerQueue, WakeAll) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   QueuedReader reader;
   ReaderTask reader_task_1(reader);
   ReaderTask reader_task_2(reader);
@@ -227,18 +227,18 @@ TEST(WakerQueue, WakeAll) {
   dispatcher.Post(reader_task_1);
   dispatcher.Post(reader_task_2);
   dispatcher.Post(reader_task_3);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(reader.queue.size(), 3u);
 
   reader.SetValueAndWakeAll(6);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_TRUE(reader.queue.empty());
   EXPECT_EQ(reader_task_1.value, 6);
   EXPECT_EQ(reader_task_2.value, 6);
   EXPECT_EQ(reader_task_3.value, 6);
 
   reader.SetValueAndWakeAll(12);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_TRUE(reader.queue.empty());
   EXPECT_EQ(reader_task_1.value, 6);
   EXPECT_EQ(reader_task_2.value, 6);

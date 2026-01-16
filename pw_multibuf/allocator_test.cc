@@ -15,7 +15,7 @@
 #include "pw_multibuf/allocator.h"
 
 #include "gtest/gtest.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/poll.h"
 #include "pw_multibuf/allocator_async.h"
 
@@ -23,7 +23,7 @@ namespace pw::multibuf {
 namespace {
 
 using ::pw::async2::Context;
-using ::pw::async2::Dispatcher;
+using ::pw::async2::DispatcherForTest;
 using ::pw::async2::Pending;
 using ::pw::async2::Poll;
 using ::pw::async2::PollOptional;
@@ -126,9 +126,9 @@ TEST(MultiBufAllocatorAsync,
   AllocateTask task(async_alloc.AllocateAsync(44, 33));
   mbuf_alloc.ExpectAllocateAndReturn(44, 33, kAllowDiscontiguous, MultiBuf());
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 
   ASSERT_TRUE(task.last_result_.IsReady());
   ASSERT_TRUE(task.last_result_->has_value());
@@ -139,27 +139,27 @@ TEST(MultiBufAllocatorAsync, AllocateAsyncWillNotPollUntilMoreMemoryAvailable) {
   MultiBufAllocatorAsync async_alloc{mbuf_alloc};
 
   AllocateTask task(async_alloc.AllocateAsync(44, 33));
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   dispatcher.Post(task);
 
   // First attempt will return `ResourceExhausted` to signal temporary OOM.
   mbuf_alloc.ExpectAllocateAndReturn(
       44, 33, kAllowDiscontiguous, Status::ResourceExhausted());
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsPending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_TRUE(task.last_result_.IsPending());
 
   // Re-running the dispatcher should not poll the pending task since it has
   // not been awoken. `AllocateAndReturn` should *not* be called.
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsPending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   // Insufficient memory should not awaken the task.
   mbuf_alloc.MoreMemoryAvailable(30, 30);
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsPending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   // Sufficient memory will awaken and return the memory
   mbuf_alloc.MoreMemoryAvailable(50, 50);
   mbuf_alloc.ExpectAllocateAndReturn(44, 33, kAllowDiscontiguous, MultiBuf());
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsReady());
+  dispatcher.RunToCompletion();
 }
 
 TEST(MultiBufAllocatorAsync, MoveMultiBufAllocationFuture) {
@@ -183,9 +183,9 @@ TEST(MultiBufAllocatorAsync, MoveMultiBufAllocationFuture) {
   AllocateTask task(std::move(fut3));
   mbuf_alloc.ExpectAllocateAndReturn(44, 33, kAllowDiscontiguous, MultiBuf());
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 
   ASSERT_TRUE(task.last_result_.IsReady());
   ASSERT_TRUE(task.last_result_->has_value());

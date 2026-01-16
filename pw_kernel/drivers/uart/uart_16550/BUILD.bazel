@@ -27,9 +27,6 @@ rust_library(
         "uart_16550_kernel.rs",
     ],
     edition = "2024",
-    proc_macro_deps = [
-        "@rust_crates//:paste",
-    ],
     tags = ["kernel"],
     target_compatible_with = TARGET_COMPATIBLE_WITH,
     deps = [
@@ -76,14 +73,4 @@ rust_library(
     deps = [
         "//pw_kernel/lib/regs",
     ],
-)
-
-rust_library(
-    name = "uart_16550_config",
-    srcs = [
-        "config.rs",
-    ],
-    edition = "2024",
-    tags = ["kernel"],
-    target_compatible_with = TARGET_COMPATIBLE_WITH,
 )

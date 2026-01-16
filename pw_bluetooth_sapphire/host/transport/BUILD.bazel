@@ -64,6 +64,8 @@ cc_library(
         "//pw_bluetooth_sapphire:lease",
         "//pw_bluetooth_sapphire/host/common",
         "//pw_bluetooth_sapphire/host/hci-spec",
+        "//pw_result",
+        "//pw_status",
         "//third_party/fuchsia:fit",
     ],
 )
@@ -100,6 +102,10 @@ pw_cc_test(
         "sco_data_packet_test.cc",
         "slab_allocators_test.cc",
         "transport_test.cc",
+    ],
+    copts = [
+        # TODO: https://pwbug.dev/464024322 - Fix warnings.
+        "-Wno-shadow",
     ],
     features = ["-conversion_warnings"],
     test_main = "//pw_bluetooth_sapphire/host/testing:gtest_main",

@@ -182,7 +182,7 @@ def _get_one_compile_command(ctx, src, action):
     Returns:
         A single compile commands struct, or None.
     """
-    if not src.extension in _ALL_COMPILE_EXTS:
+    if src.extension not in _ALL_COMPILE_EXTS:
         return None
 
     # Don't generate compile commands for arbitrary inputs that aren't
@@ -209,6 +209,9 @@ def _get_one_compile_command(ctx, src, action):
         directory = "__WORKSPACE_ROOT__",
         file = src.path,
         arguments = action.argv,
+        # The same file may be compiled multiple times with different arguments.
+        # This field signals which outputs are associated with this compilation.
+        outputs = [f.path for f in action.outputs.to_list()],
     )
 
 def _get_cpp_compile_commands(ctx, target):

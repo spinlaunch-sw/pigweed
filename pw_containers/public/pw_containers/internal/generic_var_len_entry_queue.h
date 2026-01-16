@@ -24,6 +24,7 @@
 #include "pw_containers/internal/var_len_entry.h"
 #include "pw_containers/internal/var_len_entry_queue_iterator.h"
 #include "pw_containers/internal/wrap.h"
+#include "pw_preprocessor/compiler.h"
 #include "pw_span/cast.h"
 #include "pw_span/span.h"
 #include "pw_varint/varint.h"
@@ -110,7 +111,10 @@ class GenericVarLenEntryQueueBase {
 
   /// Moves entries to be contiguous and start from the beginning of the buffer.
   static void Dering(ByteSpan bytes, size_t head) {
-    std::rotate(bytes.begin(), bytes.begin() + head, bytes.end());
+    std::rotate(
+        bytes.begin(),
+        bytes.begin() + static_cast<span<std::byte>::difference_type>(head),
+        bytes.end());
   }
 
  private:
@@ -352,11 +356,12 @@ GenericVarLenEntryQueueBase::GetInfo(ConstByteSpan bytes,
 
 constexpr size_t GenericVarLenEntryQueueBase::AvailableBytes(
     ConstByteSpan bytes, size_t head, size_t tail) {
-  size_t available_bytes = head - tail - 1;
+  PW_ASSERT(head < bytes.size());
+  PW_ASSERT(tail < bytes.size());
   if (head <= tail) {
-    available_bytes += bytes.size();
+    head += bytes.size();
   }
-  return available_bytes;
+  return head - tail - 1;
 }
 
 constexpr bool GenericVarLenEntryQueueBase::Push(ConstByteSpan data,
@@ -463,9 +468,15 @@ constexpr void GenericVarLenEntryQueueBase::CopyAndWrap(ConstByteSpan data,
   if (first_chunk >= data.size()) {
     first_chunk = data.size();
   } else {  // Copy 2nd chunk from the beginning of the buffer (may be 0 bytes).
-    pw::copy(data.begin() + first_chunk, data.end(), bytes.begin());
+    pw::copy(data.begin() +
+                 static_cast<span<std::byte>::difference_type>(first_chunk),
+             data.end(),
+             bytes.begin());
   }
-  pw::copy(data.begin(), data.begin() + first_chunk, bytes.begin() + tail);
+  pw::copy(
+      data.begin(),
+      data.begin() + static_cast<span<std::byte>::difference_type>(first_chunk),
+      bytes.begin() + static_cast<span<std::byte>::difference_type>(tail));
   IncrementWithWrap(tail, data.size(), bytes.size());
 }
 

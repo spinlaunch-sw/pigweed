@@ -54,12 +54,17 @@ impl CsrVal {
     rw_bool_field!(u32, tickint, 1, "interrupt enable");
 
     /// Extract clock source field.
+    #[must_use]
     pub const fn clksource(&self) -> CsrClkSource {
         // Safety: Value is masked to only contain valid enum values.
-        unsafe { core::mem::transmute(ops::get_u32(self.0, 2, 2) as u8) }
+        #[expect(clippy::cast_possible_truncation)]
+        unsafe {
+            core::mem::transmute(ops::get_u32(self.0, 2, 2) as u8)
+        }
     }
 
     /// Update clock source field.
+    #[must_use]
     pub const fn with_clksource(self, val: CsrClkSource) -> Self {
         Self(ops::set_u32(self.0, 2, 2, val as u32))
     }

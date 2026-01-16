@@ -27,6 +27,7 @@
 #include "pw_bluetooth/hci_h4.emb.h"
 #include "pw_bluetooth/l2cap_frames.emb.h"
 #include "pw_bluetooth_proxy/basic_l2cap_channel.h"
+#include "pw_bluetooth_proxy/config.h"
 #include "pw_bluetooth_proxy/direction.h"
 #include "pw_bluetooth_proxy/gatt_notify_channel.h"
 #include "pw_bluetooth_proxy/h4_packet.h"
@@ -35,11 +36,9 @@
 #include "pw_bluetooth_proxy/l2cap_channel_common.h"
 #include "pw_bluetooth_proxy/l2cap_coc.h"
 #include "pw_bluetooth_proxy/proxy_host.h"
-#include "pw_containers/flat_map.h"
 #include "pw_function/function.h"
 #include "pw_status/status.h"
 #include "pw_status/try.h"
-#include "pw_sync/no_lock.h"
 #include "pw_unit_test/framework.h"
 
 #if PW_BLUETOOTH_PROXY_MULTIBUF == PW_BLUETOOTH_PROXY_MULTIBUF_V1
@@ -49,14 +48,16 @@
 #include "pw_allocator/testing.h"
 #endif  // PW_BLUETOOTH_PROXY_MULTIBUF
 
+#if PW_BLUETOOTH_PROXY_ASYNC != 0
+#include "pw_async2/notified_dispatcher.h"
+#include "pw_sync/mutex.h"
+#include "pw_sync/thread_notification.h"
+#include "pw_thread/id.h"
+#include "pw_thread/test_thread_context.h"
+#include "pw_thread/thread.h"
+#endif  // PW_BLUETOOTH_PROXY_ASYNC
+
 namespace pw::bluetooth::proxy {
-
-// ########## Test Constants
-
-// Should align with L2capChannel::kQueueCapacity.
-// TODO: https://pwbug.dev/349700888 - Update uses once capacity is
-// configurable.
-inline constexpr size_t kTestL2capQueueCapacity = 5;
 
 // ########## Util functions
 
@@ -145,127 +146,12 @@ Result<EmbossT> CreateAndPopulateToHostEventWriter(
   return view;
 }
 
-// Send an LE_Read_Buffer_Size (V2) CommandComplete event to `proxy` to request
-// the reservation of a number of LE ACL send credits.
-Status SendLeReadBufferResponseFromController(
-    ProxyHost& proxy,
-    uint8_t num_credits_to_reserve,
-    uint16_t le_acl_data_packet_length = 251);
-
-Status SendReadBufferResponseFromController(
-    ProxyHost& proxy,
-    uint8_t num_credits_to_reserve,
-    uint16_t acl_data_packet_length = 0xFFFF);
-
-// Send a Number_of_Completed_Packets event to `proxy` that reports each
-// {connection handle, number of completed packets} entry provided.
-template <size_t kNumConnections>
-Status SendNumberOfCompletedPackets(
-    ProxyHost& proxy,
-    containers::FlatMap<uint16_t, uint16_t, kNumConnections>
-        packets_per_connection) {
-  std::array<
-      uint8_t,
-      emboss::NumberOfCompletedPacketsEvent::MinSizeInBytes() +
-          kNumConnections *
-              emboss::NumberOfCompletedPacketsEventData::IntrinsicSizeInBytes()>
-      hci_arr;
-  hci_arr.fill(0);
-  H4PacketWithHci nocp_event{emboss::H4PacketType::EVENT, hci_arr};
-  PW_TRY_ASSIGN(auto view,
-                MakeEmbossWriter<emboss::NumberOfCompletedPacketsEventWriter>(
-                    nocp_event.GetHciSpan()));
-  view.header().event_code().Write(
-      emboss::EventCode::NUMBER_OF_COMPLETED_PACKETS);
-  view.header().parameter_total_size().Write(
-      nocp_event.GetHciSpan().size() -
-      emboss::EventHeader::IntrinsicSizeInBytes());
-  view.num_handles().Write(kNumConnections);
-
-  size_t i = 0;
-  for (const auto& [handle, num_packets] : packets_per_connection) {
-    view.nocp_data()[i].connection_handle().Write(handle);
-    view.nocp_data()[i].num_completed_packets().Write(num_packets);
-    ++i;
-  }
-
-  proxy.HandleH4HciFromController(std::move(nocp_event));
-  return OkStatus();
-}
-
-// Send a Connection_Complete event to `proxy` indicating the provided
-// `handle` has disconnected.
-Status SendConnectionCompleteEvent(ProxyHost& proxy,
-                                   uint16_t handle,
-                                   emboss::StatusCode status);
-
-// Send a LE_Connection_Complete event to `proxy` indicating the provided
-// `handle` has disconnected.
-Status SendLeConnectionCompleteEvent(ProxyHost& proxy,
-                                     uint16_t handle,
-                                     emboss::StatusCode status);
-
-// Send a Disconnection_Complete event to `proxy` indicating the provided
-// `handle` has disconnected.
-Status SendDisconnectionCompleteEvent(
-    ProxyHost& proxy,
-    uint16_t handle,
-    Direction direction = Direction::kFromController,
-    bool successful = true);
+//  Returns the state of the given channel.
+L2capChannel::State GetState(const internal::GenericL2capChannel& channel);
 
 struct L2capOptions {
   std::optional<MtuOption> mtu;
 };
-
-Status SendL2capConnectionReq(ProxyHost& proxy,
-                              Direction direction,
-                              uint16_t handle,
-                              uint16_t source_cid,
-                              uint16_t psm);
-
-Status SendL2capConfigureReq(ProxyHost& proxy,
-                             Direction direction,
-                             uint16_t handle,
-                             uint16_t destination_cid,
-                             L2capOptions& l2cap_options);
-
-Status SendL2capConfigureRsp(ProxyHost& proxy,
-                             Direction direction,
-                             uint16_t handle,
-                             uint16_t local_cid,
-                             emboss::L2capConfigurationResult result);
-
-Status SendL2capConnectionRsp(ProxyHost& proxy,
-                              Direction direction,
-                              uint16_t handle,
-                              uint16_t source_cid,
-                              uint16_t destination_cid,
-
-                              emboss::L2capConnectionRspResultCode result_code);
-
-Status SendL2capDisconnectRsp(ProxyHost& proxy,
-                              Direction direction,
-                              AclTransportType transport,
-                              uint16_t handle,
-                              uint16_t source_cid,
-                              uint16_t destination_cid);
-
-/// Sends an L2CAP B-Frame.
-///
-/// This can be either a complete PDU (pdu_length == payload.size()) or an
-/// initial fragment (pdu_length > payload.size()).
-void SendL2capBFrame(ProxyHost& proxy,
-                     uint16_t handle,
-                     pw::span<const uint8_t> payload,
-                     size_t pdu_length,
-                     uint16_t channel_id);
-
-/// Sends an ACL frame with CONTINUING_FRAGMENT boundary flag.
-///
-/// No L2CAP header is included.
-void SendAclContinuingFrag(ProxyHost& proxy,
-                           uint16_t handle,
-                           pw::span<const uint8_t> payload);
 
 // TODO: https://pwbug.dev/382783733 - Migrate to L2capChannelEvent callback.
 struct CocParameters {
@@ -291,6 +177,18 @@ struct BasicL2capParameters {
   OptionalPayloadReceiveCallback&& payload_from_controller_fn = nullptr;
   OptionalPayloadReceiveCallback&& payload_from_host_fn = nullptr;
   ChannelEventCallback&& event_fn = nullptr;
+};
+
+struct BasicChannelProxyParameters {
+  ConnectionHandle connection_handle = ConnectionHandle{123};
+  uint16_t local_channel_id = 234;
+  uint16_t remote_channel_id = 456;
+  AclTransportType transport = AclTransportType::kLe;
+  L2capChannelManagerInterface::BufferReceiveFunction
+      payload_from_controller_fn = [](auto, auto, auto, auto) { return false; };
+  L2capChannelManagerInterface::BufferReceiveFunction payload_from_host_fn =
+      [](auto, auto, auto, auto) { return false; };
+  ChannelEventCallback event_fn = nullptr;
 };
 
 struct GattNotifyChannelParameters {
@@ -331,10 +229,213 @@ class MultiBufAllocatorContext {
 #endif  // PW_BLUETOOTH_PROXY_MULTIBUF
 };
 
+// ########## Async support
+#if PW_BLUETOOTH_PROXY_ASYNC != 0
+
+/// An RAII wrapper for a thread that runs an async task dispatcher.
+///
+/// This is useful for multithreaded unit tests of proxies that may have async
+/// mode enabled.
+///
+/// In sync mode, this type has no fields and all methods return trivially.
+class ProxyHostTestDispatcher final {
+ public:
+  /// A routine that can be invoked on the dispatcher thread.
+  ///
+  /// In async mode, packets need to be generated on the dispatcher/receive
+  /// thread. Each `ProxyHostTest::Send...` method can detect when it is called
+  /// from another thread and `NeedsDispatcherThread`. In this case, it adds its
+  /// parameters to a lambda capture that can be passed to the dispatcher thread
+  /// to re-evaluate the method.
+  ~ProxyHostTestDispatcher();
+
+  ProxyHost& proxy() { return *proxy_; }
+
+ private:
+  friend class ProxyHostTest;
+
+  ProxyHostTestDispatcher() : dispatcher_(rx_) {}
+
+  /// Registers the dispatcher with the proxy without creating a thread.
+  void StartOnCurrentThread(ProxyHost& proxy);
+
+  /// Returns true if dispatcher is running on the curren thread.
+  [[nodiscard]] bool IsRunningOnThisThread() const PW_LOCKS_EXCLUDED(mutex_);
+
+  /// Runs the dispatcher until it is stalled.
+  void Run();
+
+#if PW_THREAD_JOINING_ENABLED
+
+  /// Starts a dedicated thread to run the dispatcher.
+  void StartOnNewThread(ProxyHost& proxy);
+
+  /// If running on a dedicated thread, stops and joins the thread.
+  void JoinThread();
+
+#endif  // PW_BLUETOOTH_PROXY_ASYNC != 0
+
+  async2::NotifiedDispatcher dispatcher_;
+  ProxyHost* proxy_ = nullptr;
+
+  thread::test::TestThreadContext context_;
+  std::optional<Thread> thread_;
+
+  sync::ThreadNotification rx_;
+  sync::ThreadNotification tx_;
+
+  mutable sync::Mutex mutex_;
+  std::optional<Thread::id> id_ PW_GUARDED_BY(mutex_);
+};
+
+#endif  // PW_BLUETOOTH_PROXY_ASYNC != 0
+
 // ########## Test Suites
 
 class ProxyHostTest : public testing::Test {
  protected:
+  // Returns the number of payloads that can be dequeued without being sent.
+  // This is 0 in sync mode, and 1 in async mode.
+  static constexpr uint16_t NumBufferedPayloads() {
+    return PW_BLUETOOTH_PROXY_ASYNC == 0 ? 0 : 1;
+  }
+
+  Allocator* GetProxyHostAllocator();
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Async support. In sync mode, these methods do nothing.
+
+  /// Sets up the dispatcher for the `proxy`.
+  ///
+  /// In async mode, this registers the dispatcher that will be used to process
+  /// events on the current thread. Either this method or
+  /// `StartDispatcherOnNewThread` must be called exactly once before using the
+  /// proxy in a test. If this method is used, the dispatcher must be manually
+  /// run using `RunDispatcher`.
+  ///
+  /// In sync mode, this is a no-op.
+  void StartDispatcherOnCurrentThread(ProxyHost& proxy);
+
+  /// Starts a dedicated thread to run the async task dispatcher.
+  ///
+  /// In async mode, this registers the dispatcher that will be used to run
+  /// tasks on a separate thread. Either this method or
+  /// `StartDispatcherOnCurrentThread` must be called exactly once before using
+  /// the proxy in a test.
+  ///
+  /// In sync mode, this is a no-op.
+  void StartDispatcherOnNewThread(ProxyHost& proxy);
+
+  /// Runs the dispatcher if in async mode.
+  ///
+  /// This processes any pending events.
+  ///
+  /// In sync mode, this is a no-op.
+  void RunDispatcher();
+
+  /// Stops the dispatcher thread.
+  ///
+  /// If omitted, the dispatcher thread will be joined on test destruction.
+  ///
+  /// In sync mode, this is a no-op.
+  void JoinDispatcherThread();
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Packet generation.
+
+  // Send an LE_Read_Buffer_Size (V2) CommandComplete event to `proxy` to
+  // request the reservation of a number of LE ACL send credits.
+  Status SendLeReadBufferResponseFromController(
+      ProxyHost& proxy,
+      uint8_t num_credits_to_reserve,
+      uint16_t le_acl_data_packet_length = 251);
+
+  Status SendReadBufferResponseFromController(
+      ProxyHost& proxy,
+      uint8_t num_credits_to_reserve,
+      uint16_t acl_data_packet_length = 0xFFFF);
+
+  // Send a Number_of_Completed_Packets event to `proxy` that reports each
+  // {connection handle, number of completed packets} entry provided.
+  Status SendNumberOfCompletedPackets(
+      ProxyHost& proxy,
+      std::initializer_list<std::pair<uint16_t, uint16_t>>
+          packets_per_connection);
+
+  // Send a Connection_Complete event to `proxy` indicating the provided
+  // `handle` has disconnected.
+  Status SendConnectionCompleteEvent(ProxyHost& proxy,
+                                     uint16_t handle,
+                                     emboss::StatusCode status);
+
+  // Send a LE_Connection_Complete event to `proxy` indicating the provided
+  // `handle` has disconnected.
+  Status SendLeConnectionCompleteEvent(ProxyHost& proxy,
+                                       uint16_t handle,
+                                       emboss::StatusCode status);
+
+  // Send a Disconnection_Complete event to `proxy` indicating the provided
+  // `handle` has disconnected.
+  Status SendDisconnectionCompleteEvent(
+      ProxyHost& proxy,
+      uint16_t handle,
+      Direction direction = Direction::kFromController,
+      bool successful = true);
+
+  Status SendL2capConnectionReq(ProxyHost& proxy,
+                                Direction direction,
+                                uint16_t handle,
+                                uint16_t source_cid,
+                                uint16_t psm);
+
+  Status SendL2capConfigureReq(ProxyHost& proxy,
+                               Direction direction,
+                               uint16_t handle,
+                               uint16_t destination_cid,
+                               L2capOptions& l2cap_options);
+
+  Status SendL2capConfigureRsp(ProxyHost& proxy,
+                               Direction direction,
+                               uint16_t handle,
+                               uint16_t local_cid,
+                               emboss::L2capConfigurationResult result);
+
+  Status SendL2capConnectionRsp(
+      ProxyHost& proxy,
+      Direction direction,
+      uint16_t handle,
+      uint16_t source_cid,
+      uint16_t destination_cid,
+
+      emboss::L2capConnectionRspResultCode result_code);
+
+  Status SendL2capDisconnectRsp(ProxyHost& proxy,
+                                Direction direction,
+                                AclTransportType transport,
+                                uint16_t handle,
+                                uint16_t source_cid,
+                                uint16_t destination_cid);
+
+  /// Sends an L2CAP B-Frame.
+  ///
+  /// This can be either a complete PDU (pdu_length == payload.size()) or an
+  /// initial fragment (pdu_length > payload.size()).
+  void SendL2capBFrame(ProxyHost& proxy,
+                       uint16_t handle,
+                       pw::span<const uint8_t> payload,
+                       size_t pdu_length,
+                       uint16_t channel_id);
+
+  /// Sends an ACL frame with CONTINUING_FRAGMENT boundary flag.
+  ///
+  /// No L2CAP header is included.
+  void SendAclContinuingFrag(ProxyHost& proxy,
+                             uint16_t handle,
+                             pw::span<const uint8_t> payload);
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Channel acquisition.
+
   pw::Result<L2capCoc> BuildCocWithResult(ProxyHost& proxy,
                                           CocParameters params);
 
@@ -351,6 +452,15 @@ class ProxyHostTest : public testing::Test {
 
   GattNotifyChannel BuildGattNotifyChannel(ProxyHost& proxy,
                                            GattNotifyChannelParameters params);
+
+  Result<UniquePtr<ChannelProxy>> BuildBasicModeChannelProxyWithResult(
+      ProxyHost& proxy, BasicChannelProxyParameters&& params);
+
+  UniquePtr<ChannelProxy> BuildBasicModeChannelProxy(
+      ProxyHost& proxy, BasicChannelProxyParameters&& params);
+
+  //////////////////////////////////////////////////////////////////////////////
+  // MultiBuf utilities.
 
   template <typename T, size_t N>
   static FlatMultiBufInstance MultiBufFromSpan(span<T, N> buf,
@@ -379,6 +489,10 @@ class ProxyHostTest : public testing::Test {
   }
 
  private:
+#if PW_BLUETOOTH_PROXY_ASYNC != 0
+  ProxyHostTestDispatcher dispatcher_;
+#endif  // PW_BLUETOOTH_PROXY_ASYNC
+
   // MultiBuf allocator for creating objects to pass to the system under
   // test (e.g. creating test packets to send to proxy host).
   MultiBufAllocatorContext<2048> test_allocator_context_;

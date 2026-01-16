@@ -12,18 +12,18 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 use pw_status::Result;
-use syscall_defs::SysCallInterface;
+use syscall_defs::{Signals, SysCallInterface};
 
 pub struct SysCall {}
 
 impl SysCallInterface for SysCall {
     #[inline(always)]
-    fn object_wait(_: u32, _: u32, _: u64) -> Result<()> {
+    fn object_wait(_: u32, _: u32, _: u64) -> Result<Signals> {
         Err(pw_status::Error::Unimplemented)
     }
 
     #[inline(always)]
-    fn channel_transact(
+    unsafe fn channel_transact(
         _handle: u32,
         _send_data: *const u8,
         _send_len: usize,
@@ -35,7 +35,7 @@ impl SysCallInterface for SysCall {
     }
 
     #[inline(always)]
-    fn channel_read(
+    unsafe fn channel_read(
         _handle: u32,
         _offset: usize,
         _buffer: *mut u8,
@@ -45,7 +45,12 @@ impl SysCallInterface for SysCall {
     }
 
     #[inline(always)]
-    fn channel_respond(_handle: u32, _buffer: *const u8, _buffer_len: usize) -> Result<()> {
+    unsafe fn channel_respond(_handle: u32, _buffer: *const u8, _buffer_len: usize) -> Result<()> {
+        Err(pw_status::Error::Unimplemented)
+    }
+
+    #[inline(always)]
+    fn interrupt_ack(_handle: u32, _signal_mask: Signals) -> Result<()> {
         Err(pw_status::Error::Unimplemented)
     }
 
@@ -60,7 +65,17 @@ impl SysCallInterface for SysCall {
     }
 
     #[inline(always)]
-    fn debug_log(_buffer: *const u8, _buffer_len: usize) -> Result<()> {
+    unsafe fn debug_log(_buffer: *const u8, _buffer_len: usize) -> Result<()> {
+        Err(pw_status::Error::Unimplemented)
+    }
+
+    #[inline(always)]
+    fn debug_nop() -> Result<()> {
+        Err(pw_status::Error::Unimplemented)
+    }
+
+    #[inline(always)]
+    fn debug_trigger_interrupt(_irq: u32) -> Result<()> {
         Err(pw_status::Error::Unimplemented)
     }
 }

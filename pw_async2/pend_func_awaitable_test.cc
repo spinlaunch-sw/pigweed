@@ -20,7 +20,7 @@
 #include "pw_allocator/testing.h"
 #include "pw_async2/coro.h"
 #include "pw_async2/coro_or_else_task.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/poll.h"
 #include "pw_function/function.h"
 #include "pw_status/status.h"
@@ -30,14 +30,13 @@ namespace {
 
 using ::pw::Function;
 using ::pw::OkStatus;
-using ::pw::Result;
 using ::pw::Status;
 using ::pw::allocator::test::AllocatorForTest;
 using ::pw::async2::Context;
 using ::pw::async2::Coro;
 using ::pw::async2::CoroContext;
 using ::pw::async2::CoroOrElseTask;
-using ::pw::async2::Dispatcher;
+using ::pw::async2::DispatcherForTest;
 using ::pw::async2::PendFuncAwaitable;
 using ::pw::async2::Pending;
 using ::pw::async2::Poll;
@@ -61,7 +60,7 @@ class Mailbox {
 
   void SetValue(T v) {
     value_ = v;
-    std::move(waker_).Wake();
+    waker_.Wake();
   }
 
   int PollCount() { return poll_count_; }
@@ -91,19 +90,19 @@ TEST(PendFuncAwaitable, TestMailbox) {
       ReadMailbox(coro_cx, mailbox, output),
       [&error_handler_did_run](Status) { error_handler_did_run = true; });
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   dispatcher.Post(task);
 
   EXPECT_EQ(mailbox.PollCount(), 0);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(mailbox.PollCount(), 1);
 
   // Unwoken mailbox is not polled.
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(mailbox.PollCount(), 1);
 
   mailbox.SetValue(5);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(mailbox.PollCount(), 2);
   EXPECT_EQ(output, 5);
   EXPECT_FALSE(error_handler_did_run);

@@ -13,8 +13,9 @@
 // the License.
 #pragma once
 
+#include "pw_assert/assert.h"
 #include "pw_async2/context.h"
-#include "pw_async2/lock.h"
+#include "pw_async2/internal/lock.h"
 #include "pw_async2/poll.h"
 #include "pw_containers/intrusive_forward_list.h"
 #include "pw_containers/intrusive_list.h"
@@ -23,188 +24,225 @@
 
 namespace pw::async2 {
 
-/// @submodule{pw_async2,core}
+/// @submodule{pw_async2,tasks}
 
 /// Generates a token for use as a task name.
 #define PW_ASYNC_TASK_NAME(name) PW_LOG_TOKEN_EXPR("pw_async2", name)
 
-class NativeDispatcherBase;
+class Dispatcher;
 
 /// A task which may complete one or more asynchronous operations.
 ///
-/// The ``Task`` interface is commonly implemented by users wishing to schedule
-/// work on an  asynchronous ``Dispatcher``. To do this, users may subclass
-/// ``Task``, providing an implementation of the ``DoPend`` method which
-/// advances the state of the ``Task`` as far as possible before yielding back
-/// to the ``Dispatcher``.
+/// The `Task` interface is commonly implemented by users wishing to schedule
+/// work on an  asynchronous `Dispatcher`. To do this, users may subclass
+/// `Task`, providing an implementation of the `DoPend` method which advances
+/// the state of the `Task` as far as possible before yielding back to the
+/// `Dispatcher`.
 ///
 /// This process works similarly to cooperatively-scheduled green threads or
-/// coroutines, with a ``Task`` representing a single logical "thread" of
-/// execution. Unlike some green thread or coroutine implementations, ``Task``
-/// does not imply a separately-allocated stack: ``Task`` state is most
-/// commonly stored in fields of the ``Task`` subclass.
+/// coroutines, with a `Task` representing a single logical "thread" of
+/// execution. Unlike some green thread or coroutine implementations, `Task`
+/// does not imply a separately-allocated stack: `Task` state is most commonly
+/// stored in fields of the `Task` subclass.
 ///
-/// Once defined by a user, ``Task`` s may be run by passing them to a
-/// ``Dispatcher`` via ``Dispatcher::Post``. The ``Dispatcher`` will then
-/// ``Pend`` the ``Task`` every time that the ``Task`` indicates it is able
-/// to make progress.
+/// Once defined by a user, `Task`s may be run by passing them to a `Dispatcher`
+/// via `Dispatcher::Post`. The `Dispatcher` will then `Pend` the `Task` every
+/// time that the `Task` indicates it is able to make progress.
 ///
-/// Note that ``Task`` objects *must not* be destroyed while they are actively
-/// being ``Pend``'d by a ``Dispatcher``. To protect against this, be sure to
-/// do one of the following:
+/// Note that `Task` objects *must not* be destroyed while they are actively
+/// being `Pend`'d by a `Dispatcher`. To protect against this, be sure to do one
+/// of the following:
 ///
-/// - Use dynamic lifetimes by creating ``Task`` objects that continue to live
-///   until they receive a ``DoDestroy`` call.
-/// - Create ``Task`` objects whose stack-based lifetimes outlive their
-///   associated ``Dispatcher``.
-/// - Call ``Deregister`` on the ``Task`` prior to its destruction. NOTE that
-///   ``Deregister`` may not be called from inside the ``Task``'s own ``Pend``
-///   method.
+/// - Use dynamic lifetimes by creating `OwnedTask` objects that continue to
+///   live until they receive a `DoDestroy` call.
+/// - Create `Task` objects whose stack-based lifetimes outlive their associated
+///   `Dispatcher`.
+/// - Call `Deregister` on the `Task` prior to its destruction. NOTE that
+///   `Deregister` may not be called from inside the `Task`'s own `Pend` method.
 class Task : public IntrusiveList<Task>::Item {
-  friend class Dispatcher;
-  friend class Waker;
-  friend class NativeDispatcherBase;
-
  public:
   /// Creates a task with the specified name. To generate a name token, use the
-  /// ``PW_ASYNC_TASK_NAME`` macro, e.g.
+  /// `PW_ASYNC_TASK_NAME` macro, e.g.
   ///
-  /// ```
+  /// @code{.cpp}
   /// class MyTask : public pw::async2::Task {
   ///   MyTask() : pw::async2::Task(PW_ASYNC_TASK_NAME("MyTask")) {}
   /// };
-  /// ```
-  constexpr Task(log::Token name = kDefaultName) : name_(name) {}
+  /// @endcode
+  explicit constexpr Task(log::Token name = kDefaultName) : name_(name) {}
 
   Task(const Task&) = delete;
   Task(Task&&) = delete;
   Task& operator=(const Task&) = delete;
   Task& operator=(Task&&) = delete;
 
-  virtual ~Task() {
-    // Note: the task must not be registered with a ``Dispatcher` upon
-    // destruction. This happens automatically upon ``Task`` completion or upon
-    // ``Dispatcher`` destruction.
-    //
-    // This is necessary to ensure that neither the ``Dispatcher`` nor
-    // ``Waker`` reference the ``Task`` object after destruction.
-    //
-    // Note that the ``~Task`` destructor cannot perform this deregistration,
-    // as there is no guarantee that (1) the task is not being actively polled
-    // and (2) by the time the ``~Task`` destructor is reached, the subclass
-    // destructor has already run, invalidating the subclass state that may be
-    // read by the ``Pend`` implementation.
-  }
+  /// The task must not be registered with a `Dispatcher` upon destruction.
+  /// Tasks are deregistered automatically upon completion or `Dispatcher`
+  /// destruction. This is necessary to ensure that neither the `Dispatcher` nor
+  /// `Waker` reference the `Task` object after destruction.
+  ///
+  /// The `Task` destructor cannot perform this deregistration. Other threads
+  /// may be polling the task, and since the subclass destructor runs first,
+  /// subclass state accessed by `Pend` would be invalidated before the base
+  /// destructor could deregister the task.
+  virtual ~Task();
 
-  /// A public interface for ``DoPend``.
+  /// A public interface for `DoPend`.
   ///
-  /// ``DoPend`` is normally invoked by a ``Dispatcher`` after a ``Task`` has
-  /// been ``Post`` ed.
+  /// `DoPend` is normally invoked by a `Dispatcher` after a `Task` has been
+  /// `Post` ed.
   ///
-  /// This wrapper should only be called by ``Task`` s delegating to other
-  /// ``Task`` s.  For example, a ``class MainTask`` might have separate fields
-  /// for  ``TaskA`` and ``TaskB``, and could invoke ``Pend`` on these types
-  /// within its own ``DoPend`` implementation.
+  /// This wrapper should only be called by `Task` s delegating to other `Task`
+  /// s.  For example, a `class MainTask` might have separate fields for
+  /// `TaskA` and `TaskB`, and could invoke `Pend` on these types within its own
+  /// `DoPend` implementation.
   Poll<> Pend(Context& cx) { return DoPend(cx); }
 
-  /// Whether or not the ``Task`` is registered with a ``Dispatcher``.
+  /// Whether or not the `Task` is registered with a `Dispatcher`.
   ///
-  /// Returns ``true`` after this ``Task`` is passed to ``Dispatcher::Post``
-  /// until one of the following occurs:
+  /// Returns `true` after this `Task` is passed to `Dispatcher::Post` until one
+  /// of the following occurs:
   ///
-  /// - This ``Task`` returns ``Ready`` from its ``Pend`` method.
-  /// - ``Task::Deregister`` is called.
-  /// - The associated ``Dispatcher`` is destroyed.
+  /// - This `Task` returns `Ready` from its `Pend` method.
+  /// - `Task::Deregister` is called.
+  /// - The associated `Dispatcher` is destroyed.
   bool IsRegistered() const;
 
-  /// Deregisters this ``Task`` from the linked ``Dispatcher`` and any
-  /// associated ``Waker`` values.
+  /// Deregisters this `Task` from the linked `Dispatcher` and any associated
+  /// `Waker` values.
   ///
-  /// This must not be invoked from inside this task's ``Pend`` function, as
-  /// this will result in a deadlock.
+  /// This must not be invoked from inside this task's `Pend` function, as this
+  /// will result in a deadlock.
   ///
-  /// NOTE: If this task's ``Pend`` method is currently being run on the
-  /// dispatcher, this method will block until ``Pend`` completes.
+  /// Deregister will *not* destroy the underlying `Task`.
   ///
-  /// NOTE: This method sadly cannot guard against the dispatcher itself being
-  /// destroyed, so this method must not be called concurrently with
-  /// destruction of the dispatcher associated with this ``Task``.
+  /// @note If this task's `Pend` method is currently being run on the
+  /// dispatcher, this method will block until `Pend` completes.
   ///
-  /// Note that this will *not* destroy the underlying ``Task``.
-  void Deregister();
+  /// @warning This method cannot guard against the dispatcher itself being
+  /// destroyed, so this method must not be called concurrently with destruction
+  /// of the dispatcher associated with this `Task`.
+  void Deregister() PW_LOCKS_EXCLUDED(internal::lock());
 
-  /// A public interface for ``DoDestroy``.
+  /// Blocks this thread until the task finishes running.
   ///
-  /// ``DoDestroy`` is normally invoked by a ``Dispatcher`` after a ``Post`` ed
-  /// ``Task`` has completed.
-  ///
-  /// This should only be called by ``Task`` s delegating to other ``Task`` s.
-  void Destroy() { DoDestroy(); }
+  /// @pre The task must be posted to a `Dispatcher` that runs in a different
+  /// thread.
+  void Join() PW_LOCKS_EXCLUDED(internal::lock());
 
  private:
+  friend class Dispatcher;
+  friend class OwnedTask;
+  friend class Waker;
+
   static constexpr log::Token kDefaultName =
       PW_LOG_TOKEN("pw_async2", "(anonymous)");
+
+  struct OwnedTag {};
+
+  // Constructor for OwnedTask objects.
+  constexpr Task(log::Token name, OwnedTag)
+      : owned_by_dispatcher_(true), name_(name) {}
 
   /// Attempts to deregister this task.
   ///
   /// If the task is currently running, this will return false and the task
   /// will not be deregistered.
-  bool TryDeregister() PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+  bool TryDeregister() PW_LOCKS_EXCLUDED(internal::lock());
 
-  /// Attempts to advance this ``Task`` to completion.
+  /// Attempts to advance this `Task` to completion.
   ///
   /// This method should not perform synchronous waiting, as doing so may block
-  /// the main ``Dispatcher`` loop and prevent other ``Task`` s from
-  /// progressing. Because of this, ``Task`` s should not invoke blocking
-  /// ``Dispatcher`` methods such as ``RunUntilComplete``.
+  /// the main `Dispatcher` loop and prevent other `Task` s from
+  /// progressing. Because of this, `Task` s should not invoke blocking
+  /// `Dispatcher` methods such as `RunUntilComplete`.
   ///
-  /// ``Task`` s should also avoid invoking ``RunUntilStalled` on their own
-  /// ``Dispatcher``.
+  /// `Task`s should also avoid invoking `RunUntilStalled` on their own
+  /// `Dispatcher`.
   ///
-  /// Returns ``Ready`` if complete, or ``Pending`` if the ``Task`` was not yet
+  /// Returns `Ready` if complete, or `Pending` if the `Task` was not yet
   /// able to complete.
   ///
-  /// If ``Pending`` is returned, the ``Task`` must ensure it is woken up when
-  /// it is able to make progress. To do this, ``Task::Pend`` must arrange for
-  /// ``Waker::Wake`` to be called, either by storing a copy of the ``Waker``
+  /// If `Pending` is returned, the `Task` must ensure it is woken up when
+  /// it is able to make progress. To do this, `Task::Pend` must arrange for
+  /// `Waker::Wake` to be called, either by storing a copy of the `Waker`
   /// away to be awoken by another system (such as an interrupt handler).
   virtual Poll<> DoPend(Context&) = 0;
 
-  /// Performs any necessary cleanup of ``Task`` memory after completion.
-  ///
-  /// This may include calls to ``std::destroy_at(this)``, and may involve
-  /// deallocating the memory for this ``Task`` itself.
-  ///
-  /// Tasks implementations which wish to be reused may skip self-destruction
-  /// here.
-  virtual void DoDestroy() {}
+  // Sets this task to use the provided dispatcher.
+  void PostTo(Dispatcher& dispatcher)
+      PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock()) {
+    PW_DASSERT(state_ == State::kUnposted);
+    PW_DASSERT(dispatcher_ == nullptr);
+    state_ = State::kWoken;
+    dispatcher_ = &dispatcher;
+  }
 
-  // Unlinks all ``Waker`` objects associated with this ``Task.``
-  void RemoveAllWakersLocked()
-      PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+  // Clears the task's dispatcher.
+  void Unpost() PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock()) {
+    state_ = State::kUnposted;
+    dispatcher_ = nullptr;
+    RemoveAllWakersLocked();
+  }
 
-  // Adds a ``Waker`` to the linked list of ``Waker`` s tracked by this
-  // ``Task``.
-  void AddWakerLocked(Waker&)
-      PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+  void MarkRunning() PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock()) {
+    state_ = State::kRunning;
+  }
 
-  // Removes a ``Waker`` from the linked list of ``Waker`` s tracked by this
-  // ``Task``
+  // Result from `RunInDispatcher`. This is a superset of
+  // Dispatcher::RunTaskResult, which merges kCompletedNeedsDestroy into
+  // kCompleted.
+  enum RunResult {
+    // The task is still posted to the dispatcher.
+    kActive,
+
+    // The task was removed from the dispatcher by another thread.
+    kDeregistered,
+
+    // The task finished running.
+    kCompleted,
+
+    // The task finished running and must be deleted by the dispatcher.
+    kCompletedNeedsDestroy,
+  };
+
+  // Called by the dispatcher to run this task. The task has already been marked
+  // as running.
+  RunResult RunInDispatcher() PW_LOCKS_EXCLUDED(internal::lock());
+
+  // Called by the dispatcher to wake this task. Returns whether the task
+  // actually needed to be woken.
+  [[nodiscard]] bool Wake() PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
+
+  // Unlinks all `Waker` objects associated with this `Task.`
+  void RemoveAllWakersLocked() PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
+
+  // Adds a `Waker` to the linked list of `Waker` s tracked by this
+  // `Task`.
+  void AddWakerLocked(Waker&) PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
+
+  // Removes a `Waker` from the linked list of `Waker`s tracked by this `Task`.
   //
-  // Precondition: the provided waker *must* be in the list of ``Waker`` s
-  // tracked by this ``Task``.
-  void RemoveWakerLocked(Waker&)
-      PW_EXCLUSIVE_LOCKS_REQUIRED(impl::dispatcher_lock());
+  // Precondition: the provided waker *must* be in the list of `Waker`s tracked
+  // by this `Task`.
+  void RemoveWakerLocked(Waker&) PW_EXCLUSIVE_LOCKS_REQUIRED(internal::lock());
 
-  enum class State {
+  Dispatcher& GetDispatcherWhileRunning() PW_NO_LOCK_SAFETY_ANALYSIS {
+    return *dispatcher_;
+  }
+
+  enum class State : unsigned char {
     kUnposted,
     kRunning,
+    kDeregisteredButRunning,
     kWoken,
     kSleeping,
   };
 
   // The current state of the task.
-  State state_ PW_GUARDED_BY(impl::dispatcher_lock()) = State::kUnposted;
+  State state_ PW_GUARDED_BY(internal::lock()) = State::kUnposted;
+
+  bool owned_by_dispatcher_ PW_GUARDED_BY(internal::lock()) = false;
 
   // A pointer to the dispatcher this task is associated with.
   //
@@ -212,17 +250,16 @@ class Task : public IntrusiveList<Task>::Item {
   //
   // This value must be cleared by the dispatcher upon destruction in order to
   // prevent null access.
-  NativeDispatcherBase* dispatcher_ PW_GUARDED_BY(impl::dispatcher_lock()) =
-      nullptr;
+  Dispatcher* dispatcher_ PW_GUARDED_BY(internal::lock()) = nullptr;
 
-  // Linked list of ``Waker`` s that may awaken this ``Task``.
-  IntrusiveForwardList<Waker> wakers_ PW_GUARDED_BY(impl::dispatcher_lock());
+  // Linked list of `Waker` s that may awaken this `Task`.
+  IntrusiveForwardList<Waker> wakers_ PW_GUARDED_BY(internal::lock());
 
   // Optional user-facing name for the task. If set, it will be included in
   // debug logs.
   log::Token name_;
 };
 
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

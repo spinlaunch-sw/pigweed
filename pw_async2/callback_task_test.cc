@@ -16,279 +16,109 @@
 
 #include <optional>
 
-#include "pw_async2/dispatcher.h"
-#include "pw_async2/waker.h"
-#include "pw_function/function.h"
+#include "pw_async2/dispatcher_for_test.h"
+#include "pw_async2/future.h"
+#include "pw_async2/value_future.h"
 #include "pw_unit_test/framework.h"
 
 namespace {
 
-using ::pw::Function;
-using ::pw::async2::Context;
-using ::pw::async2::Dispatcher;
-using ::pw::async2::OneshotCallbackTask;
-using ::pw::async2::OneshotCallbackTaskFor;
-using ::pw::async2::Pending;
-using ::pw::async2::Poll;
-using ::pw::async2::Ready;
-using ::pw::async2::RecurringCallbackTask;
-using ::pw::async2::RecurringCallbackTaskFor;
-using ::pw::async2::Waker;
+using ::pw::async2::CallbackTask;
+using ::pw::async2::DispatcherForTest;
+using ::pw::async2::ValueFuture;
+using ::pw::async2::ValueProvider;
 
-std::optional<char> fake_uart_char;
-Waker fake_uart_waker;
+TEST(CallbackTask, PendsFutureUntilReady) {
+  ValueProvider<char> provider;
+  char result = '\0';
 
-void InitializeUart() {
-  fake_uart_char = std::nullopt;
-  fake_uart_waker.Clear();
+  CallbackTask<ValueFuture<char>> task([&result](char c) { result = c; },
+                                       provider.Get());
+
+  DispatcherForTest dispatcher;
+  dispatcher.Post(task);
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
+  EXPECT_EQ(result, '\0');
+
+  provider.Resolve('b');
+
+  dispatcher.RunToCompletion();
+  EXPECT_EQ(result, 'b');
+
+  EXPECT_FALSE(task.IsRegistered());
 }
 
-void SetUartData(char c) {
-  fake_uart_char = c;
-  std::move(fake_uart_waker).Wake();
+TEST(CallbackTask, ImmediatelyReturnsReady) {
+  char result = '\0';
+
+  CallbackTask<ValueFuture<char>> task([&result](char c) { result = c; },
+                                       ValueFuture<char>::Resolved('b'));
+
+  DispatcherForTest dispatcher;
+  dispatcher.Post(task);
+  dispatcher.RunToCompletion();
+  EXPECT_EQ(result, 'b');
+
+  EXPECT_FALSE(task.IsRegistered());
 }
 
-Poll<char> FakeReadUart(Context& cx) {
-  if (fake_uart_char.has_value()) {
-    char c = *fake_uart_char;
-    fake_uart_char = std::nullopt;
-    return Ready(c);
-  }
+TEST(CallbackTask, VoidFuture) {
+  ValueProvider<void> provider;
 
-  PW_ASYNC_STORE_WAKER(cx, fake_uart_waker, "FakeReadUart waiting for data");
-  return Pending();
+  bool completed = false;
+
+  CallbackTask<ValueFuture<void>> task([&completed]() { completed = true; },
+                                       provider.Get());
+
+  DispatcherForTest dispatcher;
+  dispatcher.Post(task);
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
+  EXPECT_FALSE(completed);
+
+  provider.Resolve();
+
+  dispatcher.RunToCompletion();
+  EXPECT_TRUE(completed);
+
+  EXPECT_FALSE(task.IsRegistered());
 }
 
-int ready_immediately_max_ready_before_unschedule = 1;
-Poll<int> ReadyImmediately(Context& cx) {
-  if (ready_immediately_max_ready_before_unschedule-- > 0) {
-    return Ready(7);
-  }
-  return cx.Unschedule<int>();
-}
-
-Poll<> ReturnNothingImmediately(Context&) { return Ready(); }
-
-template <typename T>
-class CallbackContext {
+class TestFuture {
  public:
-  CallbackContext(T initial_value) : value_(initial_value) {}
+  TestFuture() = default;
 
-  void set_value(T value) {
-    invocation_count_++;
-    value_ = value;
+  using value_type = int;
+
+  TestFuture(int number_one, int number_two)
+      : state_(pw::async2::FutureState::kPending),
+        number_one_(number_one),
+        number_two_(number_two) {}
+
+  pw::async2::Poll<value_type> Pend(pw::async2::Context&) {
+    PW_ASSERT(state_.is_pendable());
+    state_.MarkComplete();
+    return number_one_ + number_two_;
   }
 
-  constexpr T value() const { return value_; }
-  constexpr int invocation_count() const { return invocation_count_; }
+  bool is_complete() const { return state_.is_complete(); }
 
  private:
-  T value_;
-  int invocation_count_ = 0;
+  pw::async2::FutureState state_;
+  int number_one_;
+  int number_two_;
 };
 
-class PendableReader {
- public:
-  Poll<int> ReadValue(Context& cx) {
-    if (value_.has_value()) {
-      int value = *value_;
-      value_ = std::nullopt;
-      return Ready(value);
-    }
+TEST(CallbackTask, Emplace) {
+  int result = 0;
+  auto task = CallbackTask<TestFuture>::Emplace(
+      [&result](int c) { result = c; }, 40, 2);
 
-    PW_ASYNC_STORE_WAKER(cx, waker_, "PendableReader waiting for value");
-    return Pending();
-  }
-
-  void SetValue(int value) {
-    value_ = value;
-    std::move(waker_).Wake();
-  }
-
- private:
-  std::optional<int> value_;
-  Waker waker_;
-};
-
-TEST(OneshotCallbackTask, FreeFunctionWithArguments) {
-  InitializeUart();
-
-  CallbackContext<char> callback_context('\0');
-
-  OneshotCallbackTask<char> task = OneshotCallbackTaskFor<&FakeReadUart>(
-      [&callback_context](char c) { callback_context.set_value(c); });
-
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), '\0');
-  EXPECT_EQ(callback_context.invocation_count(), 0);
+  dispatcher.RunToCompletion();
+  EXPECT_EQ(result, 42);
 
-  SetUartData('b');
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 'b');
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-
-  // A oneshot task should not run a second time.
-  SetUartData('d');
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 'b');
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-}
-
-TEST(OneshotCallbackTask, FreeFunctionWithoutArguments) {
-  InitializeUart();
-
-  CallbackContext<int> callback_context(0);
-
-  OneshotCallbackTask<> task =
-      OneshotCallbackTaskFor<&ReturnNothingImmediately>(
-          [&callback_context]() { callback_context.set_value(1); });
-
-  Dispatcher dispatcher;
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 1);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-
-  // A oneshot task should not run a second time.
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 1);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-}
-
-TEST(OneshotCallbackTask, MemberFunction) {
-  CallbackContext<int> callback_context(0);
-
-  PendableReader pendable_reader;
-  OneshotCallbackTask<int> task =
-      OneshotCallbackTaskFor<&PendableReader::ReadValue>(
-          pendable_reader, [&callback_context](int value) {
-            callback_context.set_value(value);
-          });
-
-  Dispatcher dispatcher;
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 0);
-  EXPECT_EQ(callback_context.invocation_count(), 0);
-
-  pendable_reader.SetValue(27);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 27);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-
-  // A oneshot task should not run a second time.
-  pendable_reader.SetValue(39);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 27);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-}
-
-TEST(OneshotCallbackTask, ImmediatelyReturnsReady) {
-  CallbackContext<int> callback_context(0);
-
-  ready_immediately_max_ready_before_unschedule = 1;
-  OneshotCallbackTask<int> task = OneshotCallbackTaskFor<&ReadyImmediately>(
-      [&callback_context](int value) { callback_context.set_value(value); });
-
-  Dispatcher dispatcher;
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 7);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 7);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-}
-
-TEST(RecurringCallbackTask, FreeFunction) {
-  InitializeUart();
-
-  CallbackContext<char> callback_context('\0');
-
-  RecurringCallbackTask<char> task = RecurringCallbackTaskFor<&FakeReadUart>(
-      [&callback_context](char c) { callback_context.set_value(c); });
-
-  Dispatcher dispatcher;
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), '\0');
-  EXPECT_EQ(callback_context.invocation_count(), 0);
-
-  // A recurring task should re-run forever without completing.
-  SetUartData('b');
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 'b');
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-
-  SetUartData('d');
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 'd');
-  EXPECT_EQ(callback_context.invocation_count(), 2);
-
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 'd');
-  EXPECT_EQ(callback_context.invocation_count(), 2);
-
-  SetUartData('g');
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 'g');
-  EXPECT_EQ(callback_context.invocation_count(), 3);
-}
-
-TEST(RecurringCallbackTask, MemberFunction) {
-  CallbackContext<int> callback_context(0);
-
-  PendableReader pendable_reader;
-  RecurringCallbackTask<int> task =
-      RecurringCallbackTaskFor<&PendableReader::ReadValue>(
-          pendable_reader, [&callback_context](int value) {
-            callback_context.set_value(value);
-          });
-
-  Dispatcher dispatcher;
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 0);
-  EXPECT_EQ(callback_context.invocation_count(), 0);
-
-  // A recurring task should re-run forever without completing.
-  pendable_reader.SetValue(27);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 27);
-  EXPECT_EQ(callback_context.invocation_count(), 1);
-
-  pendable_reader.SetValue(39);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 39);
-  EXPECT_EQ(callback_context.invocation_count(), 2);
-
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 39);
-  EXPECT_EQ(callback_context.invocation_count(), 2);
-
-  pendable_reader.SetValue(51);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
-  EXPECT_EQ(callback_context.value(), 51);
-  EXPECT_EQ(callback_context.invocation_count(), 3);
-}
-
-TEST(RecurringCallbackTask, ImmediatelyReturnsReady) {
-  CallbackContext<int> callback_context(0);
-
-  constexpr int kMaxInvocations = 10;
-
-  ready_immediately_max_ready_before_unschedule = kMaxInvocations;
-  RecurringCallbackTask<int> task = RecurringCallbackTaskFor<&ReadyImmediately>(
-      [&callback_context](int value) { callback_context.set_value(value); });
-
-  Dispatcher dispatcher;
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
-  EXPECT_EQ(callback_context.value(), 7);
-  EXPECT_EQ(callback_context.invocation_count(), kMaxInvocations);
+  EXPECT_FALSE(task.IsRegistered());
 }
 
 }  // namespace

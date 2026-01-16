@@ -392,7 +392,7 @@ pw_add_library(pw_system.async STATIC
     threads.cc
   PUBLIC_DEPS
     pw_allocator.allocator
-    pw_async2.dispatcher
+    pw_async2
     pw_channel
     pw_rpc.server
   PRIVATE_DEPS
@@ -407,6 +407,7 @@ pw_add_library(pw_system.async STATIC
     pw_allocator.best_fit_block_allocator
     pw_allocator.synchronized_allocator
     pw_async2.allocate_task
+    pw_async2.basic_dispatcher
     pw_async2.pend_func_task
     pw_hdlc.router
     pw_multibuf.simple_allocator
@@ -423,7 +424,7 @@ pw_add_library(pw_system.async_packet_io STATIC
   SOURCES
     async_packet_io.cc
   PUBLIC_DEPS
-    pw_async2.dispatcher
+    pw_async2
     pw_channel.forwarding_channel
     pw_containers.inline_var_len_entry_queue
     pw_hdlc.router
@@ -443,8 +444,7 @@ pw_add_library(pw_system.async_packet_io STATIC
     pw_log
 )
 
-if((NOT "${pw_async2.dispatcher_BACKEND}" STREQUAL "") AND
-  (NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows"))
+if(NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
   # TODO: b/317922402 - Run on Windows when thread detaching is supported.
   pw_add_test(pw_system.async_packet_io_test
     SOURCES
@@ -472,14 +472,3 @@ if((NOT "${pw_async2.dispatcher_BACKEND}" STREQUAL "") AND
       pw_system
   )
 endif()
-
-add_executable(pw_system.system_async_host_example EXCLUDE_FROM_ALL
-  system_async_host_example.cc
-)
-target_link_libraries(pw_system.system_async_host_example
-  PRIVATE
-    pw_system.async
-    pw_channel.epoll_channel
-    pw_multibuf.testing
-    pw_rpc.pwpb.echo_service
-)

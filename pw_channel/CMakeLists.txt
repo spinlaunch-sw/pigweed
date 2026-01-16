@@ -15,12 +15,13 @@
 include($ENV{PW_ROOT}/pw_build/pigweed.cmake)
 include($ENV{PW_ROOT}/pw_async2/backend.cmake)
 
-pw_add_library(pw_channel STATIC
+pw_add_library(pw_channel INTERFACE
   HEADERS
     public/pw_channel/channel.h
+    public/pw_channel/internal/channel_specializations.h
   PUBLIC_DEPS
     pw_assert
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
     pw_bytes
     pw_channel.properties
@@ -33,15 +34,13 @@ pw_add_library(pw_channel STATIC
     pw_toolchain._sibling_cast
   PUBLIC_INCLUDES
     public
-  SOURCES
-    public/pw_channel/internal/channel_specializations.h
 )
 
 pw_add_library(pw_channel.packet_channel INTERFACE
   HEADERS
     public/pw_channel/packet_channel.h
   PUBLIC_DEPS
-    pw_async2.dispatcher
+    pw_async2
     pw_channel.properties
     pw_result
     pw_third_party.fuchsia.stdcompat
@@ -73,8 +72,9 @@ pw_add_test(pw_channel.packet_channel_test
   PRIVATE_DEPS
     pw_channel.packet_channel
     pw_allocator.allocator
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
+    pw_async2.testing
     pw_containers
     pw_unit_test
     pw_compilation_testing._pigweed_only_negative_compilation
@@ -125,6 +125,7 @@ pw_add_test(pw_channel.loopback_channel_test
     pw_channel.loopback_channel
     pw_multibuf.allocator_async
     pw_multibuf.testing
+    pw_async2.testing
 )
 
 pw_add_library(pw_channel.epoll_channel STATIC
@@ -133,6 +134,7 @@ pw_add_library(pw_channel.epoll_channel STATIC
   SOURCES
     epoll_channel.cc
   PUBLIC_DEPS
+    pw_async2.epoll_dispatcher
     pw_channel
     pw_multibuf.allocator
     pw_multibuf.allocator_async
@@ -140,6 +142,7 @@ pw_add_library(pw_channel.epoll_channel STATIC
   PUBLIC_INCLUDES
     public
   PRIVATE_DEPS
+    pw_assert
     pw_log
 )
 
@@ -147,9 +150,11 @@ pw_add_test(pw_channel.epoll_channel_test
   SOURCES
     epoll_channel_test.cc
   PRIVATE_DEPS
+    pw_async2.epoll_dispatcher
     pw_channel.epoll_channel
     pw_multibuf.allocator_async
     pw_multibuf.testing
+    pw_async2.testing
     pw_thread.sleep
     pw_thread.thread
 )
@@ -178,6 +183,7 @@ pw_add_test(pw_channel.stream_channel_test
     pw_async2.pend_func_task
     pw_multibuf.allocator_async
     pw_multibuf.testing
+    pw_async2.testing
     pw_stream
     pw_stream.mpsc_stream
     pw_thread.thread
@@ -190,7 +196,7 @@ pw_add_library(pw_channel.test_packet_channel INTERFACE
   PUBLIC_DEPS
     pw_allocator.testing
     pw_assert
-    pw_async2.dispatcher
+    pw_async2
     pw_channel.packet_channel
     pw_containers.dynamic_deque
     pw_containers.dynamic_vector
@@ -204,9 +210,10 @@ pw_add_test(pw_channel.test_packet_channel_test
     test_packet_channel_test.cc
   PRIVATE_DEPS
     pw_allocator.testing
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.pend_func_task
     pw_async2.poll
+    pw_async2.testing
     pw_channel.test_packet_channel
     pw_result
 )
@@ -221,7 +228,7 @@ pw_add_library(pw_channel.packet_proxy STATIC
   PUBLIC_DEPS
     pw_allocator
     pw_allocator.chunk_pool
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
     pw_async2.waker_queue
     pw_channel.packet_channel
@@ -236,6 +243,7 @@ pw_add_test(pw_channel.packet_proxy_test
   PRIVATE_DEPS
     pw_allocator.testing
     pw_async2.pend_func_task
+    pw_async2.testing
     pw_channel.packet_proxy
     pw_channel.test_packet_channel
 )

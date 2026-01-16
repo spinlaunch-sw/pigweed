@@ -213,7 +213,7 @@ cc_library(
     visibility = ["//visibility:private"],
     deps = [
         ":deque_common",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:poll",
         "//pw_async2:waker_queue",
     ],
@@ -261,6 +261,7 @@ cc_library(
     deps = [
         ":async_count_and_capacity",
         ":inline_deque",
+        "//pw_preprocessor",
     ],
 )
 
@@ -304,6 +305,7 @@ cc_library(
         ":async_count_and_capacity",
         ":inline_async_deque",
         ":inline_queue",
+        "//pw_preprocessor",
     ],
 )
 
@@ -387,6 +389,7 @@ cc_library(
     ],
     strip_include_prefix = "public",
     deps = [
+        ":storage",
         "//pw_assert:assert",
         "//pw_preprocessor",
         "//pw_toolchain:constexpr_tag",
@@ -400,6 +403,16 @@ cc_library(
     deps = [
         ":dynamic_deque",
         ":iterator",
+        "//pw_allocator:allocator",
+    ],
+)
+
+cc_library(
+    name = "dynamic_ptr_vector",
+    hdrs = ["public/pw_containers/dynamic_ptr_vector.h"],
+    strip_include_prefix = "public",
+    deps = [
+        ":dynamic_vector",
         "//pw_allocator:allocator",
     ],
 )
@@ -419,6 +432,12 @@ cc_library(
     hdrs = ["public/pw_containers/flat_map.h"],
     strip_include_prefix = "public",
     deps = ["//pw_assert:assert"],
+)
+
+cc_library(
+    name = "functional",
+    hdrs = ["public/pw_containers/functional.h"],
+    strip_include_prefix = "public",
 )
 
 cc_library(
@@ -504,6 +523,16 @@ pw_cc_test(
 )
 
 pw_cc_test(
+    name = "functional_test",
+    srcs = [
+        "functional_test.cc",
+    ],
+    deps = [
+        ":functional",
+    ],
+)
+
+pw_cc_test(
     name = "inline_var_len_entry_queue_test",
     srcs = [
         "inline_var_len_entry_queue_test.cc",
@@ -550,6 +579,18 @@ pw_cc_test(
         ":dynamic_vector",
         ":test_helpers",
         "//pw_allocator:testing",
+    ],
+)
+
+pw_cc_test(
+    name = "dynamic_ptr_vector_test",
+    srcs = ["dynamic_ptr_vector_test.cc"],
+    has_nc_test = True,
+    deps = [
+        ":dynamic_ptr_vector",
+        ":test_helpers",
+        "//pw_allocator:testing",
+        "//pw_unit_test",
     ],
 )
 
@@ -620,9 +661,11 @@ pw_cc_test(
     deps = [
         ":inline_async_deque",
         ":test_helpers",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:pend_func_task",
         "//pw_async2:poll",
+        "//pw_async2:testing",
+        "//pw_preprocessor",
         "//pw_status",
     ],
 )
@@ -657,9 +700,11 @@ pw_cc_test(
     ],
     deps = [
         ":inline_async_queue",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_async2:pend_func_task",
         "//pw_async2:poll",
+        "//pw_async2:testing",
+        "//pw_preprocessor",
         "//pw_status",
     ],
 )
@@ -861,10 +906,12 @@ filegroup(
         "public/pw_containers/bitset.h",
         "public/pw_containers/deque.h",
         "public/pw_containers/dynamic_deque.h",
+        "public/pw_containers/dynamic_ptr_vector.h",
         "public/pw_containers/dynamic_queue.h",
         "public/pw_containers/dynamic_vector.h",
         "public/pw_containers/filtered_view.h",
         "public/pw_containers/flat_map.h",
+        "public/pw_containers/functional.h",
         "public/pw_containers/inline_async_deque.h",
         "public/pw_containers/inline_async_queue.h",
         "public/pw_containers/inline_deque.h",
@@ -901,6 +948,7 @@ sphinx_docs_library(
         "multiple_containers.rst",
         "queues.rst",
         "sets.rst",
+        "storage_test.cc",
         "utilities.rst",
         "vectors.rst",
         ":lists_size_report",

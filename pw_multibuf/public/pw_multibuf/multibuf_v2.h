@@ -205,10 +205,10 @@ class BasicMultiBuf {
 
   using size_type = typename Deque::size_type;
   using difference_type = typename Deque::difference_type;
-  using iterator =
-      multibuf::internal::ByteIterator<size_type, /*kIsConst=*/false>;
-  using const_iterator =
-      multibuf::internal::ByteIterator<size_type, /*kIsConst=*/true>;
+  using iterator = multibuf::internal::
+      ByteIterator<size_type, multibuf::internal::ChunkMutability::kMutable>;
+  using const_iterator = multibuf::internal::
+      ByteIterator<size_type, multibuf::internal::ChunkMutability::kConst>;
   using pointer = iterator::pointer;
   using const_pointer = const_iterator::pointer;
   using reference = iterator::reference;
@@ -216,6 +216,9 @@ class BasicMultiBuf {
   using value_type = std::conditional_t<is_const(),
                                         const_iterator::value_type,
                                         iterator::value_type>;
+
+  using ChunksType = multibuf::internal::Chunks<Deque>;
+  using ConstChunksType = multibuf::internal::ConstChunks<Deque>;
 
   /// An instantiation of a `MultiBuf`.
   ///
@@ -318,6 +321,12 @@ class BasicMultiBuf {
   /// fragments.
   constexpr bool empty() const { return generic().empty(); }
 
+  /// Returns whether the MultiBuf is at capacity, i.e. whether it cannot add
+  /// more chunks or fragments without allocating additional memory. This is
+  /// similar to the standard `full()` method for containers, except that this
+  /// object can dynamically grow.
+  constexpr bool at_capacity() const { return generic().at_capacity(); }
+
   /// Returns the size of a MultiBuf in bytes, which is the sum of the lengths
   /// of the views that make up its topmost layer.
   constexpr size_t size() const { return generic().size(); }
@@ -360,13 +369,11 @@ class BasicMultiBuf {
   /// @endcode
   /// @{
   template <bool kMutable = !is_const()>
-  constexpr std::enable_if_t<kMutable, multibuf::Chunks<Deque>> Chunks() {
+  constexpr std::enable_if_t<kMutable, ChunksType> Chunks() {
     return generic().Chunks();
   }
-  constexpr multibuf::ConstChunks<Deque> Chunks() const {
-    return generic().ConstChunks();
-  }
-  constexpr multibuf::ConstChunks<Deque> ConstChunks() const {
+  constexpr ConstChunksType Chunks() const { return generic().ConstChunks(); }
+  constexpr ConstChunksType ConstChunks() const {
     return generic().ConstChunks();
   }
   /// @}
@@ -411,52 +418,6 @@ class BasicMultiBuf {
 
   // Other methods
 
-  /// Returns whether the MultiBuf can be added to this object.
-  ///
-  /// To be compatible, the memory for each of incoming MultiBuf's chunks must
-  /// be one of the following:
-  ///   * Externally managed, i.e. "unowned".
-  ///   * Deallocatable by the same deallocator as other chunks, if any.
-  ///   * Part of the same shared memory allocation as any other shared chunks.
-  ///
-  /// @param    mb      MultiBuf to check for compatibility.
-  bool IsCompatible(const BasicMultiBuf& mb) const {
-    return generic().IsCompatible(mb.generic());
-  }
-
-  /// @name IsCompatible
-  /// Returns whether the owned memory can be added to this object.
-  ///
-  /// To be compatible, the unique pointer must be the first owned or shared
-  /// memory added to the object, or have the same deallocator as all previously
-  /// owned or shared memory added to the object.
-  ///
-  /// @param    bytes   Owned memory to check for compatibility.
-  /// @{
-  bool IsCompatible(const UniquePtr<std::byte[]>& bytes) const {
-    return generic().IsCompatible(bytes.deallocator());
-  }
-  bool IsCompatible(const UniquePtr<const std::byte[]>& bytes) const {
-    return generic().IsCompatible(bytes.deallocator());
-  }
-  /// @}
-
-  /// @name IsCompatible
-  /// Returns whether the shared memory can be added to this object.
-  ///
-  /// To be compatible, the shared pointer must be the first shared pointer
-  /// added to the object, or match the shared pointer previously added.
-  ///
-  /// @param    bytes   Shared memory to check for compatibility.
-  /// @{
-  bool IsCompatible(const SharedPtr<std::byte[]>& bytes) const {
-    return generic().IsCompatible(bytes.control_block());
-  }
-  bool IsCompatible(const SharedPtr<const std::byte[]>& bytes) const {
-    return generic().IsCompatible(bytes.control_block());
-  }
-  /// @}
-
   /// Attempts to reserves memory to hold metadata for the given number of total
   /// chunks. Returns whether the memory was successfully allocated.
   [[nodiscard]] bool TryReserveChunks(size_t num_chunks) {
@@ -480,61 +441,16 @@ class BasicMultiBuf {
   [[nodiscard]] bool TryReserveForInsert(
       const_iterator pos, const BasicMultiBuf<kOtherProperties...>& mb);
 
-  /// Attempts to modify this object to be able to accept the given unowned
-  /// memory, and returns whether successful.
+  /// Attempts to modify this object to be able to insert a chunk at the given
+  /// position, and returns whether successful.
   ///
-  /// It is an error to call this method with an invalid iterator or
-  /// incompatible MultiBuf, if applicable.
-  ///
-  /// If unable to allocate space for the metadata, returns false and leaves the
-  /// object unchanged. Otherwise, returns true.
-  ///
-  /// @param    pos     Location to insert memory within the MultiBuf.
-  /// @param    bytes   Unowned memory to be inserted.
-  template <
-      int&... kExplicitGuard,
-      typename T,
-      typename =
-          std::enable_if_t<std::is_constructible_v<ConstByteSpan, T>, int>>
-  [[nodiscard]] bool TryReserveForInsert(const_iterator pos, const T& bytes);
-
-  /// @name TryReserveForInsert
-  /// Attempts to modify this object to be able to accept the given owned
-  /// memory, and returns whether successful.
-  ///
-  /// It is an error to call this method with an invalid iterator or
-  /// incompatible MultiBuf, if applicable.
+  /// It is an error to call this method with an invalid iterator.
   ///
   /// If unable to allocate space for the metadata, returns false and leaves the
   /// object unchanged. Otherwise, returns true.
   ///
   /// @param    pos     Location to insert memory within the MultiBuf.
-  /// @param    bytes   Owned memory to be inserted.
-  /// @{
-  [[nodiscard]] bool TryReserveForInsert(const_iterator pos,
-                                         const UniquePtr<std::byte[]>& bytes);
-  [[nodiscard]] bool TryReserveForInsert(
-      const_iterator pos, const UniquePtr<const std::byte[]>& bytes);
-  /// @}
-
-  /// @name TryReserveForInsert
-  /// Attempts to modify this object to be able to accept the given shared
-  /// memory, and returns whether successful.
-  ///
-  /// It is an error to call this method with an invalid iterator or
-  /// incompatible MultiBuf, if applicable.
-  ///
-  /// If unable to allocate space for the metadata, returns false and leaves the
-  /// object unchanged. Otherwise, returns true.
-  ///
-  /// @param    pos     Location to insert memory within the MultiBuf.
-  /// @param    bytes   Shared memory to be inserted.
-  /// @{
-  [[nodiscard]] bool TryReserveForInsert(const_iterator pos,
-                                         const SharedPtr<std::byte[]>& bytes);
-  [[nodiscard]] bool TryReserveForInsert(
-      const_iterator pos, const SharedPtr<const std::byte[]>& bytes);
-  /// @}
+  [[nodiscard]] bool TryReserveForInsert(const_iterator pos);
 
   /// Insert memory before the given iterator.
   ///
@@ -642,7 +558,7 @@ class BasicMultiBuf {
               size_t length = dynamic_extent);
   /// @}
 
-  /// Attempts to modify this object to be able to move the given MultiBuf to
+  /// Attempts to modify this object to be able to append the given MultiBuf to
   /// the end of this object.
   ///
   /// If unable to allocate space for the metadata, returns false and leaves the
@@ -653,47 +569,12 @@ class BasicMultiBuf {
   [[nodiscard]] bool TryReserveForPushBack(
       const BasicMultiBuf<kOtherProperties...>& mb);
 
-  /// Attempts to modify this object to be able to move the given unowned memory
-  /// to the end of this object.
+  /// Attempts to modify this object to be able to append a chunk to the end of
+  /// this object.
   ///
   /// If unable to allocate space for the metadata, returns false and leaves the
   /// object unchanged. Otherwise, returns true.
-  ///
-  /// @param    bytes   Unowned memory to be inserted.
-  template <
-      int&... kExplicitGuard,
-      typename T,
-      typename =
-          std::enable_if_t<std::is_constructible_v<ConstByteSpan, T>, int>>
-  [[nodiscard]] bool TryReserveForPushBack(const T& bytes);
-
-  /// @name TryReserveForPushBack
-  /// Attempts to modify this object to be able to move the given owned memory
-  /// to the end of this object.
-  ///
-  /// If unable to allocate space for the metadata, returns false and leaves the
-  /// object unchanged. Otherwise, returns true.
-  ///
-  /// @param    bytes   Owned memory to be inserted.
-  /// @{
-  [[nodiscard]] bool TryReserveForPushBack(const UniquePtr<std::byte[]>& bytes);
-  [[nodiscard]] bool TryReserveForPushBack(
-      const UniquePtr<const std::byte[]>& bytes);
-  /// @}
-
-  /// @name TryReserveForPushBack
-  /// Attempts to modify this object to be able to move the given shared memory
-  /// to the end of this object.
-  ///
-  /// If unable to allocate space for the metadata, returns false and leaves the
-  /// object unchanged. Otherwise, returns true.
-  ///
-  /// @param    bytes   Shared memory to be inserted.
-  /// @{
-  [[nodiscard]] bool TryReserveForPushBack(const SharedPtr<std::byte[]>& bytes);
-  [[nodiscard]] bool TryReserveForPushBack(
-      const SharedPtr<const std::byte[]>& bytes);
-  /// @}
+  [[nodiscard]] bool TryReserveForPushBack();
 
   /// Moves bytes to the end of this object.
   ///
@@ -793,9 +674,7 @@ class BasicMultiBuf {
   /// Returns whether the given range can be removed.
   ///
   /// A range may not be valid to `Remove` if it does not fall within the
-  /// MultiBuf, or if it splits "owned" chunks. Owned chunks are those added
-  /// using a `UniquePtr`. Splitting them between different MultiBufs would
-  /// result in conflicting ownership, and is therefore disallowed.
+  /// MultiBuf.
   ///
   /// @param    pos     Location from which to remove memory from the MultiBuf.
   /// @param    size    Amount of memory to remove.
@@ -975,12 +854,20 @@ class BasicMultiBuf {
     return visitor(Get(copy, offset));
   }
 
-  /// Releases all memory from this object.
+  /// Releases all memory regions from this object.
   ///
   /// If this object has a deallocator, it will be used to free the memory
   /// owned by this object. When this method returns, the MultiBuf
   /// will be restored to an initial, empty state.
   void Clear() { generic().Clear(); }
+
+  /// Removes unused capacity from the internal deque.
+  ///
+  /// Owned memory r
+  /// This object's memory context  has a deallocator, it will be used to free
+  /// the memory owned by this object. When this method returns, the MultiBuf
+  /// will be restored to an initial, empty state.
+  void ShrinkToFit() { generic().ShrinkToFit(); }
 
   // Observable methods.
 
@@ -1185,6 +1072,8 @@ class GenericMultiBuf final
                             Property::kObservable> {
  private:
   using ControlBlock = allocator::internal::ControlBlock;
+  using typename BasicMultiBuf<>::ChunksType;
+  using typename BasicMultiBuf<>::ConstChunksType;
   using typename BasicMultiBuf<>::Deque;
 
  public:
@@ -1236,28 +1125,23 @@ class GenericMultiBuf final
   /// @copydoc BasicMultiBuf<>::empty
   constexpr bool empty() const { return deque_.empty(); }
 
+  /// @copydoc BasicMultiBuf<>::at_capacity
+  constexpr bool at_capacity() const {
+    return deque_.size() == deque_.capacity();
+  }
+
   /// @copydoc BasicMultiBuf<>::size
   constexpr size_t size() const {
     return static_cast<size_t>(cend() - cbegin());
   }
 
-  /// @copydoc BasicMultiBuf<>::has_deallocator
-  constexpr bool has_deallocator() const {
-    return memory_tag_ == MemoryTag::kDeallocator || has_control_block();
-  }
-
-  /// @copydoc BasicMultiBuf<>::has_control_block
-  constexpr bool has_control_block() const {
-    return memory_tag_ == MemoryTag::kControlBlock;
-  }
-
   // Iterators.
 
-  constexpr multibuf::Chunks<Deque> Chunks() {
-    return multibuf::Chunks<Deque>(deque_, depth_);
+  constexpr ChunksType Chunks() {
+    return ChunksType(deque_, entries_per_chunk_);
   }
-  constexpr multibuf::ConstChunks<Deque> ConstChunks() const {
-    return multibuf::ConstChunks<Deque>(deque_, depth_);
+  constexpr ConstChunksType ConstChunks() const {
+    return ConstChunksType(deque_, entries_per_chunk_);
   }
 
   constexpr iterator begin() { return iterator(Chunks().begin(), 0); }
@@ -1272,25 +1156,16 @@ class GenericMultiBuf final
 
   // Mutators.
 
-  /// @copydoc BasicMultiBuf<>::IsCompatible
-  bool IsCompatible(const GenericMultiBuf& other) const;
-  bool IsCompatible(const Deallocator* other) const;
-  bool IsCompatible(const ControlBlock* other) const;
-
   /// @copydoc BasicMultiBuf<>::TryReserveChunks
-  [[nodiscard]] bool TryReserveChunks(size_t num_chunks);
+  [[nodiscard]] bool TryReserveChunks(size_t num_chunks) {
+    return TryReserveLayers(NumLayers(), num_chunks);
+  }
 
   /// @copydoc BasicMultiBuf<>::TryReserveForInsert
   /// @{
   [[nodiscard]] bool TryReserveForInsert(const_iterator pos,
                                          const GenericMultiBuf& mb);
-  [[nodiscard]] bool TryReserveForInsert(const_iterator pos, size_t size);
-  [[nodiscard]] bool TryReserveForInsert(const_iterator pos,
-                                         size_t size,
-                                         const Deallocator* deallocator);
-  [[nodiscard]] bool TryReserveForInsert(const_iterator pos,
-                                         size_t size,
-                                         const ControlBlock* control_block);
+  [[nodiscard]] bool TryReserveForInsert(const_iterator pos);
   /// @}
 
   /// @copydoc BasicMultiBuf<>::Insert
@@ -1310,7 +1185,11 @@ class GenericMultiBuf final
   /// @}
 
   /// @copydoc BasicMultiBuf<>::IsRemovable
-  [[nodiscard]] bool IsRemovable(const_iterator pos, size_t size) const;
+  [[nodiscard]] constexpr bool IsRemovable(const_iterator pos,
+                                           size_t size) const {
+    return pos != cend() && size != 0 &&
+           size <= static_cast<size_t>(cend() - pos);
+  }
 
   /// @copydoc BasicMultiBuf<>::Remove
   Result<GenericMultiBuf> Remove(const_iterator pos, size_t size);
@@ -1331,10 +1210,12 @@ class GenericMultiBuf final
   [[nodiscard]] bool IsShareable(const_iterator pos) const;
 
   /// @copydoc BasicMultiBuf<>::Share
-  std::byte* Share(const_iterator pos);
+  SharedPtr<std::byte[]> Share(const_iterator pos);
 
   /// @copydoc BasicMultiBuf<>::CopyTo
-  size_t CopyTo(ByteSpan dst, size_t offset) const;
+  size_t CopyTo(ByteSpan dst, size_t offset) const {
+    return CopyToImpl(dst, offset, 0);
+  }
 
   /// @copydoc BasicMultiBuf<>::CopyFrom
   size_t CopyFrom(ConstByteSpan src, size_t offset);
@@ -1345,13 +1226,18 @@ class GenericMultiBuf final
   /// @copydoc BasicMultiBuf<>::Clear
   void Clear();
 
+  /// @copydoc BasicMultiBuf<>::ShrinkToFit
+  void ShrinkToFit();
+
   // Layerable methods.
 
   /// @copydoc BasicMultiBuf<>::NumFragments
   size_type NumFragments() const;
 
   /// @copydoc BasicMultiBuf<>::NumLayers
-  constexpr size_type NumLayers() const { return depth_ - 1; }
+  constexpr size_type NumLayers() const {
+    return entries_per_chunk_ - Entry::kMinEntriesPerChunk + 1;
+  }
 
   /// @copydoc BasicMultiBuf<>::TryReserveLayers
   [[nodiscard]] bool TryReserveLayers(size_t num_layers, size_t num_chunks = 1);
@@ -1382,103 +1268,120 @@ class GenericMultiBuf final
   /// returns `length`.
   static size_t CheckRange(size_t offset, size_t length, size_t size);
 
+  /// Returns the number of chunks in the MultiBuf.
+  constexpr size_type num_chunks() const {
+    return deque_.size() / entries_per_chunk_;
+  }
+
+  /// Returns the index to the data entry of a given chunk.
+  constexpr size_type memory_context_index(size_type chunk) const {
+    return Entry::memory_context_index(chunk, entries_per_chunk_);
+  }
+
+  /// Returns the index to the data entry of a given chunk.
+  constexpr size_type data_index(size_type chunk) const {
+    return Entry::data_index(chunk, entries_per_chunk_);
+  }
+
+  /// Returns the index to the base view entry of a given chunk.
+  constexpr size_type base_view_index(size_type chunk) const {
+    return Entry::base_view_index(chunk, entries_per_chunk_);
+  }
+
+  /// Returns the index to a view entry of a given chunk.
+  constexpr size_type view_index(size_type chunk, size_type layer) const {
+    return Entry::view_index(chunk, entries_per_chunk_, layer);
+  }
+
+  /// Returns the index to the top view entry of a given chunk.
+  constexpr size_type top_view_index(size_type chunk) const {
+    return Entry::top_view_index(chunk, entries_per_chunk_);
+  }
+
   /// Returns the memory backing the chunk at the given index.
-  constexpr std::byte* GetData(size_type index) const {
-    return deque_[index].data;
+  constexpr std::byte* GetData(size_type chunk) const {
+    return deque_[data_index(chunk)].data;
   }
 
   /// Returns whether the memory backing the chunk at the given index is owned
   /// by this object.
-  constexpr bool IsOwned(size_type index) const {
-    return deque_[index + 1].base_view.owned;
+  constexpr bool IsOwned(size_type chunk) const {
+    return deque_[base_view_index(chunk)].base_view.owned;
   }
 
   /// Returns whether the memory backing the chunk at the given index is shared
   /// with other objects.
-  constexpr bool IsShared(size_type index) const {
-    return deque_[index + 1].base_view.shared;
+  constexpr bool IsShared(size_type chunk) const {
+    return deque_[base_view_index(chunk)].base_view.shared;
   }
 
-  /// Returns whether the chunk at the given index is part of a sealed layer.
-  constexpr bool IsSealed(size_type index) const {
-    return depth_ == 2 ? false : deque_[index + depth_ - 1].view.sealed;
+  /// Returns whether the chunk is part of a sealed layer.
+  constexpr bool IsSealed(size_type chunk) const {
+    return entries_per_chunk_ == Entry::kMinEntriesPerChunk
+               ? false
+               : deque_[top_view_index(chunk)].view.sealed;
   }
 
-  /// Returns whether the chunk at the given index represents a fragment
-  /// boundary.
-  constexpr bool IsBoundary(size_type index) const {
-    return depth_ == 2 ? true : deque_[index + depth_ - 1].view.boundary;
+  /// Returns whether the chunk represents a fragment boundary.
+  constexpr bool IsBoundary(size_type chunk) const {
+    return entries_per_chunk_ == Entry::kMinEntriesPerChunk
+               ? true
+               : deque_[top_view_index(chunk)].view.boundary;
   }
 
-  /// Returns the absolute offset of the given layer of the chunk at the given
-  /// index.
+  /// Returns the absolute offset of the given layer of the chunk.
+  ///
   /// `layer` must be in the range [1, NumLayers()].
-  constexpr size_type GetOffset(size_type index, uint16_t layer) const {
-    return layer == 1 ? deque_[index + 1].base_view.offset
-                      : deque_[index + layer].view.offset;
+  constexpr size_type GetOffset(size_type chunk, uint16_t layer) const {
+    return layer == 1 ? deque_[base_view_index(chunk)].base_view.offset
+                      : deque_[view_index(chunk, layer)].view.offset;
   }
 
-  /// Returns the offset of the view of the chunk at the given index.
-  constexpr size_type GetOffset(size_type index) const {
-    return GetOffset(index, NumLayers());
+  /// Returns the offset of the view of the chunk.
+  constexpr size_type GetOffset(size_type chunk) const {
+    return GetOffset(chunk, NumLayers());
   }
 
-  /// Returns the offset relative to the layer below of the view of the chunk
-  /// at the given index.
-  constexpr size_type GetRelativeOffset(size_type index) const {
+  /// Returns the offset relative to the layer below of the view of the chunk.
+  constexpr size_type GetRelativeOffset(size_type chunk) const {
     uint16_t layer = NumLayers();
     if (layer == 1) {
-      return GetOffset(index, layer);
+      return GetOffset(chunk, layer);
     }
-    return GetOffset(index, layer) - GetOffset(index, layer - 1);
+    return GetOffset(chunk, layer) - GetOffset(chunk, layer - 1);
   }
 
   /// Returns the length of the view of the chunk at the given index.
-  constexpr size_type GetLength(size_type index) const {
-    return depth_ == 2 ? deque_[index + 1].base_view.length
-                       : deque_[index + depth_ - 1].view.length;
+  constexpr size_type GetLength(size_type chunk) const {
+    return entries_per_chunk_ == Entry::kMinEntriesPerChunk
+               ? deque_[base_view_index(chunk)].base_view.length
+               : deque_[top_view_index(chunk)].view.length;
   }
 
-  /// Returns the available view of a chunk at the given index.
-  constexpr ByteSpan GetView(size_type index) const {
-    return ByteSpan(GetData(index) + GetOffset(index), GetLength(index));
+  /// Returns the available view of a chunk.
+  constexpr ByteSpan GetView(size_type chunk) const {
+    return ByteSpan(GetData(chunk) + GetOffset(chunk), GetLength(chunk));
   }
 
-  /// Returns the deallocator from the memory context, if set.
-  Deallocator* GetDeallocator() const;
-
-  /// Sets the deallocator.
-  void SetDeallocator(Deallocator* deallocator);
-
-  /// Returns the control block from the memory context, if set.
-  ControlBlock* GetControlBlock() const;
-
-  /// Sets the deallocator.
-  void SetControlBlock(ControlBlock* control_block);
-
-  /// Copies the memory context from another MultiBuf.
-  void CopyMemoryContext(const GenericMultiBuf& other);
-
-  /// Resets the memory context to its initial state.
-  void ClearMemoryContext();
-
-  /// Converts an iterator into a deque index and byte offset.
+  /// Converts an iterator into a chunk index and byte offset.
   ///
   /// The given iterator must be valid.
-  std::pair<size_type, size_type> GetIndexAndOffset(const_iterator pos) const;
+  std::pair<size_type, size_type> GetChunkAndOffset(const_iterator pos) const;
+
+  /// Attempts to allocate a control block and convert an owned chunk into a
+  /// shared one.
+  [[nodiscard]] bool TryConvertToShared(size_type chunk);
 
   /// Attempts to allocate room for an additional `num_entries` of metadata.
   ///
   /// If the added entries would split a chunk, an extra chunk will be needed to
   /// hold the split portion.
-  /// @{
-  bool TryReserveEntries(const_iterator pos, size_type num_entries);
-  bool TryReserveEntries(size_type num_entries, bool split = false);
-  /// @}
+  [[nodiscard]] bool TryReserveEntries(size_type num_entries,
+                                       bool split = false);
 
-  /// Inserts the given number of blank entries into the deque at the given
-  /// position, and returns the deque index to the start of the entries.
-  size_type InsertEntries(const_iterator pos, size_type num_entries);
+  /// Inserts the given number of empty chunk into the deque at the given
+  /// position, and returns the chunk index to the start of the chunk.
+  size_type InsertChunks(const_iterator pos, size_type num_chunks);
 
   /// Inserts entries representing the given data into the deque at the given
   /// position, and returns the deque index to the start of the entries.
@@ -1487,8 +1390,8 @@ class GenericMultiBuf final
                    size_t offset,
                    size_t length);
 
-  /// Sets the base entries of the chunk given by `out_index` in the `out_deque`
-  /// to match the chunk given by `index`.
+  /// Sets the base entries of a given `out_chunk` in the `out_deque` to match
+  /// the given `chunk`.
   ///
   /// This method should not be called directly. Call `SplitBefore` or
   /// `SplitAfter` instead.
@@ -1496,35 +1399,35 @@ class GenericMultiBuf final
   /// "Owned" chunks, i.e. those added using a `UniquePtr`, can be split between
   /// different chunks of a single MultiBuf, but it is an error to try to split
   /// them between different MultiBufs.
-  void SplitBase(size_type index, Deque& out_deque, size_type out_index);
+  void SplitBase(size_type chunk, Deque& out_deque, size_type out_chunk);
 
-  /// Sets the chunk given by `out_index` in the `out_deque` to match the
-  /// portion of the chunk given by `index` that comes before the given `split`.
+  /// Sets the given `out_chunk` in the `out_deque` to match the portion of the
+  /// given `chunk` that comes before the given `split`.
   ///
   /// See the note on `SplitBase` about "owned" chunks. It is an error to try to
   /// split owned chunks between different MultiBufs.
-  void SplitBefore(size_type index,
+  void SplitBefore(size_type chunk,
                    size_type split,
                    Deque& out_deque,
-                   size_type out_index);
+                   size_type out_chunk);
 
-  /// Like SplitBefore, but with `out_deque` and `out_index` defaulting to
-  /// `deque_` and `index`, respectively.
-  void SplitBefore(size_type index, size_type split);
+  /// Like SplitBefore, but with `out_deque` and `out_chunk` defaulting to
+  /// `deque_` and `chunk`, respectively.
+  void SplitBefore(size_type chunk, size_type split);
 
-  /// Sets the chunk given by `out_index` in the `out_deque` to match the
-  /// portion of the chunk given by `index` that comes after the given `split`.
+  /// Sets the given `out_chunk` in the `out_deque` to match the portion of the
+  /// given `chunk` that comes after the given `split`.
   ///
   /// See the note on `SplitBase` about "owned" chunks. It is an error to try to
   /// split owned chunks between different MultiBufs.
-  void SplitAfter(size_type index,
+  void SplitAfter(size_type chunk,
                   size_type split,
                   Deque& out_deque,
-                  size_type out_index);
+                  size_type out_chunk);
 
-  /// Like SplitAfter, but with `out_deque` and `out_index` defaulting to
-  /// `deque_` and `index`, respectively.
-  void SplitAfter(size_type index, size_type split);
+  /// Like SplitAfter, but with `out_deque` and `out_chunk` defaulting to
+  /// `deque_` and `chunk`, respectively.
+  void SplitAfter(size_type chunk, size_type split);
 
   /// Attempts to reserve space need to remove a range of bytes.
   ///
@@ -1540,11 +1443,11 @@ class GenericMultiBuf final
                                          size_t size,
                                          GenericMultiBuf* out);
 
-  /// Copies entries for a given range of bytes from this object to another.
+  /// Moves entries for a given range of bytes from this object to another.
   ///
   /// It is an error to call this method without calling `TryReserveForRemove`
   /// first.
-  void CopyRange(const_iterator pos, size_t size, GenericMultiBuf& out);
+  void MoveRange(const_iterator pos, size_t size, GenericMultiBuf& out);
 
   /// Clears any chunks that fall completely within the given range.
   ///
@@ -1557,12 +1460,8 @@ class GenericMultiBuf final
   /// first.
   void EraseRange(const_iterator pos, size_t size);
 
-  /// Returns the index of first chunk after `start`, inclusive, that is shared
-  /// and has the same data as the chunk given by `index`.
-  size_type FindShared(size_type index, size_type start);
-
-  /// Copies `dst.size()` bytes from `offset` to `dst`, using the queue index
-  /// hint, `start`.
+  /// Copies `dst.size()` bytes from `offset` to `dst`, using the chunk hint,
+  /// `start`.
   size_t CopyToImpl(ByteSpan dst, size_t offset, size_type start) const;
 
   /// Returns whether the top layer is sealed.
@@ -1573,9 +1472,9 @@ class GenericMultiBuf final
   void SetLayer(size_t offset, size_t length);
 
   // Describes the memory and views to that in a one-dimensional sequence.
-  // Every `depth_`-th entry holds a pointer to memory, each entry for a given
-  // offset less than `depth_` after that entry is a view that is part of the
-  // same "layer" in the MultiBuf.
+  // Every `entries_per_chunk_`-th entry holds a pointer to memory, each entry
+  // for a given offset less than `entries_per_chunk_` after that entry is a
+  // view that is part of the same "layer" in the MultiBuf.
   //
   // This base type will always have 0 or 2 layers, but derived classes may add
   // more.
@@ -1591,35 +1490,7 @@ class GenericMultiBuf final
   Deque deque_;
 
   // Number of entries per chunk in this MultiBuf.
-  size_type depth_ = 2;
-
-  /// @name MemoryContext
-  /// Encapsulates details about the ownership of the memory buffers stored in
-  /// this object.
-  ///
-  /// The discriminated union is managed using an explicit tag as opposed to
-  /// using ``std::variant``. This tag is smaller than the pointer stored in the
-  /// context, and can be stored alongside the ``depth_`` member. This allows
-  /// for a more compact MultiBuf object than one that uses ``std::variant``.
-  ///
-  /// It is strongly recommended to maintain the abstraction of these members by
-  /// using the "{has_/Get/Set}{Deallocator/ControlBlock}" methods above rather
-  /// than accessing these members directly.
-  ///
-  /// See ``IsCompatible`` for details on what combinations of memory ownership
-  /// are supported.
-  /// @{
-  enum class MemoryTag : uint8_t {
-    kEmpty,
-    kDeallocator,
-    kControlBlock,
-  } memory_tag_ = MemoryTag::kEmpty;
-
-  union MemoryContext {
-    Deallocator* deallocator;
-    ControlBlock* control_block;
-  } memory_context_ = {.deallocator = nullptr};
-  /// }@
+  size_type entries_per_chunk_ = Entry::kMinEntriesPerChunk;
 
   /// Optional subscriber to notifications about adding and removing bytes and
   /// layers.
@@ -1737,6 +1608,11 @@ class Instance {
 // Template method implementations.
 
 template <multibuf::Property... kProperties>
+bool BasicMultiBuf<kProperties...>::TryReserveForInsert(const_iterator pos) {
+  return generic().TryReserveForInsert(pos);
+}
+
+template <multibuf::Property... kProperties>
 template <multibuf::Property... kOtherProperties>
 bool BasicMultiBuf<kProperties...>::TryReserveForInsert(
     const_iterator pos, const BasicMultiBuf<kOtherProperties...>& mb) {
@@ -1744,46 +1620,6 @@ bool BasicMultiBuf<kProperties...>::TryReserveForInsert(
                                           BasicMultiBuf>();
   return generic().TryReserveForInsert(pos,
                                        static_cast<const GenericMultiBuf&>(mb));
-}
-
-template <multibuf::Property... kProperties>
-template <int&... kExplicitGuard, typename T, typename>
-bool BasicMultiBuf<kProperties...>::TryReserveForInsert(const_iterator pos,
-                                                        const T& bytes) {
-  using data_ptr_type = decltype(std::data(std::declval<T&>()));
-  static_assert(std::is_same_v<data_ptr_type, std::byte*> || is_const(),
-                "Cannot `Insert` read-only bytes into mutable MultiBuf");
-  return generic().TryReserveForInsert(pos, bytes.size());
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForInsert(
-    const_iterator pos, const UniquePtr<std::byte[]>& bytes) {
-  return generic().TryReserveForInsert(pos, bytes.size(), bytes.deallocator());
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForInsert(
-    const_iterator pos, const UniquePtr<const std::byte[]>& bytes) {
-  static_assert(is_const(),
-                "Cannot `Insert` read-only bytes into mutable MultiBuf");
-  return generic().TryReserveForInsert(pos, bytes.size(), bytes.deallocator());
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForInsert(
-    const_iterator pos, const SharedPtr<std::byte[]>& bytes) {
-  return generic().TryReserveForInsert(
-      pos, bytes.size(), bytes.control_block());
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForInsert(
-    const_iterator pos, const SharedPtr<const std::byte[]>& bytes) {
-  static_assert(is_const(),
-                "Cannot `Insert` read-only bytes into mutable MultiBuf");
-  return generic().TryReserveForInsert(
-      pos, bytes.size(), bytes.control_block());
 }
 
 template <multibuf::Property... kProperties>
@@ -1851,44 +1687,13 @@ template <multibuf::Property... kProperties>
 template <multibuf::Property... kOtherProperties>
 bool BasicMultiBuf<kProperties...>::TryReserveForPushBack(
     const BasicMultiBuf<kOtherProperties...>& mb) {
-  return TryReserveForInsert(end(), mb);
+  return generic().TryReserveForInsert(end(),
+                                       static_cast<const GenericMultiBuf&>(mb));
 }
 
 template <multibuf::Property... kProperties>
-template <int&... kExplicitGuard, typename T, typename>
-bool BasicMultiBuf<kProperties...>::TryReserveForPushBack(const T& bytes) {
-  using data_ptr_type = decltype(std::data(std::declval<T&>()));
-  static_assert(std::is_same_v<data_ptr_type, std::byte*> || is_const(),
-                "Cannot `PushBack` read-only bytes into mutable MultiBuf");
-  return TryReserveForInsert(end(), bytes);
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForPushBack(
-    const UniquePtr<std::byte[]>& bytes) {
-  return TryReserveForInsert(end(), std::move(bytes));
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForPushBack(
-    const UniquePtr<const std::byte[]>& bytes) {
-  static_assert(is_const(),
-                "Cannot `PushBack` read-only bytes into mutable MultiBuf");
-  return TryReserveForInsert(end(), std::move(bytes));
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForPushBack(
-    const SharedPtr<std::byte[]>& bytes) {
-  return TryReserveForInsert(end(), bytes);
-}
-
-template <multibuf::Property... kProperties>
-bool BasicMultiBuf<kProperties...>::TryReserveForPushBack(
-    const SharedPtr<const std::byte[]>& bytes) {
-  static_assert(is_const(),
-                "Cannot `PushBack` read-only bytes into mutable MultiBuf");
-  return TryReserveForInsert(end(), bytes);
+bool BasicMultiBuf<kProperties...>::TryReserveForPushBack() {
+  return generic().TryReserveForInsert(end());
 }
 
 template <multibuf::Property... kProperties>
@@ -1973,8 +1778,7 @@ BasicMultiBuf<kProperties...>::Release(const_iterator pos) {
 template <multibuf::Property... kProperties>
 SharedPtr<typename BasicMultiBuf<kProperties...>::value_type[]>
 BasicMultiBuf<kProperties...>::Share(const_iterator pos) {
-  return SharedPtr<value_type[]>(generic().Share(pos),
-                                 generic().GetControlBlock());
+  return SharedPtr<value_type[]>(generic().Share(pos));
 }
 
 }  // namespace pw

@@ -36,7 +36,7 @@ pw::async2::Poll<int> Keypad::Pend(pw::async2::Context& cx) {
 void Keypad::Press(int key) {
   std::lock_guard lock(lock_);
   key_pressed_ = key;
-  std::move(waker_).Wake();
+  waker_.Wake();
 }
 
 pw::async2::Poll<VendingMachineTask::Input> VendingMachineTask::PendInput(
@@ -44,11 +44,11 @@ pw::async2::Poll<VendingMachineTask::Input> VendingMachineTask::PendInput(
   Input input = kNone;
   selected_item_ = std::nullopt;
 
-  PW_TRY_READY_ASSIGN(
-      auto result,
-      pw::async2::Select(cx,
-                         pw::async2::PendableFor<&CoinSlot::Pend>(coin_slot_),
-                         pw::async2::PendableFor<&Keypad::Pend>(keypad_)));
+  PW_TRY_READY_ASSIGN(auto result,
+                      pw::async2::SelectPendable(
+                          cx,
+                          pw::async2::PendableFor<&CoinSlot::Pend>(coin_slot_),
+                          pw::async2::PendableFor<&Keypad::Pend>(keypad_)));
   pw::async2::VisitSelectResult(
       result,
       [](pw::async2::AllPendablesCompleted) {},

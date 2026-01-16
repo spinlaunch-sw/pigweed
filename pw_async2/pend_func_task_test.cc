@@ -17,7 +17,7 @@
 #include <optional>
 #include <utility>
 
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_function/function.h"
 #include "pw_unit_test/framework.h"
 
@@ -25,7 +25,7 @@ namespace {
 
 using ::pw::Function;
 using ::pw::async2::Context;
-using ::pw::async2::Dispatcher;
+using ::pw::async2::DispatcherForTest;
 using ::pw::async2::PendFuncTask;
 using ::pw::async2::Pending;
 using ::pw::async2::Poll;
@@ -33,7 +33,7 @@ using ::pw::async2::Ready;
 using ::pw::async2::Waker;
 
 TEST(PendFuncTask, PendDelegatesToFunc) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   Waker waker;
   int poll_count = 0;
@@ -51,16 +51,16 @@ TEST(PendFuncTask, PendDelegatesToFunc) {
   dispatcher.Post(func_task);
 
   EXPECT_EQ(poll_count, 0);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(poll_count, 1);
 
   // Unwoken task is not polled.
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(poll_count, 1);
 
-  std::move(waker).Wake();
+  waker.Wake();
   allow_completion = true;
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(poll_count, 2);
 }
 
@@ -107,6 +107,15 @@ TEST(PendFuncTask, TestTemplateDeductionAndSize) {
   // A raw function pointer just needs storage for the pointer value.
   auto d = PendFuncTask(&ReturnsReady);
   static_assert(sizeof(decltype(d)::CallableType) == sizeof(&ReturnsReady));
+}
+
+TEST(PendFuncTask, DeregistersInDestructor) {
+  DispatcherForTest dispatcher;
+  {
+    PendFuncTask task([](Context&) { return Pending(); });
+    dispatcher.Post(task);
+  }
+  EXPECT_FALSE(dispatcher.RunUntilStalled());
 }
 
 }  // namespace

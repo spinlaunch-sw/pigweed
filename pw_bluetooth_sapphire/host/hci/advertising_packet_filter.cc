@@ -31,7 +31,7 @@ AdvertisingPacketFilter::AdvertisingPacketFilter(
          "hci",
          "advertising packet filter initialized with offloading enabled: %s, "
          "max_filters: %d",
-         packet_filter_config.offloading_enabled() ? "yes" : "no",
+         packet_filter_config.offloading_supported() ? "yes" : "no",
          packet_filter_config.max_filters());
 
   hci_cmd_runner_ = std::make_unique<SequentialCommandRunner>(
@@ -50,26 +50,15 @@ void AdvertisingPacketFilter::SetPacketFilters(
          scan_id,
          filters.size());
 
-  scan_ids_.insert(scan_id);
   scan_id_to_filters_[scan_id] = filters;
 
-  if (!config_.offloading_enabled()) {
+  if (!config_.offloading_supported()) {
     return;
   }
 
   if (filters.empty()) {
     return;
   }
-
-  // NOTE(b/448475405): We suspect there is a bug with advertising packet
-  // filtering where we don't get scan results on time from the Controller. So
-  // as not to affect others who use Bluetooth scanning, disable advertising
-  // packet filtering for now while we investigate.
-  bt_log(INFO,
-         "hci-le",
-         "pre-emptively disabling advertising packet filtering while we "
-         "investigate a bug within it");
-  return;
 
   // If none of our filters are offloadable and we turn on scan filter
   // offloading, we will get no results.
@@ -94,7 +83,7 @@ void AdvertisingPacketFilter::SetPacketFilters(
     return;
   }
 
-  if (!offloaded_filtering_enabled_) {
+  if (filtering_state_ == FilteringState::kHostFiltering) {
     bt_log(INFO, "hci-le", "controller filter memory available");
     EnableOffloadedFiltering();
     return;
@@ -124,41 +113,37 @@ void AdvertisingPacketFilter::SetPacketFilters(
   });
 }
 
+void AdvertisingPacketFilter::UnsetPacketFilters(ScanId scan_id) {
+  UnsetPacketFiltersInternal(scan_id, true);
+
+  if (!config_.offloading_supported()) {
+    return;
+  }
+
+  if (filtering_state_ == FilteringState::kHostFiltering && MemoryAvailable()) {
+    bt_log(INFO, "hci-le", "controller filter memory available");
+    EnableOffloadedFiltering();
+  }
+}
+
 void AdvertisingPacketFilter::UnsetPacketFiltersInternal(ScanId scan_id,
                                                          bool run_commands) {
-  if (scan_id_to_filters_.count(scan_id) == 0) {
-    return;
-  }
-
-  bt_log(INFO, "hci", "removing packet filters for scan id: %d", scan_id);
-  scan_ids_.erase(scan_id);
   scan_id_to_filters_.erase(scan_id);
 
-  if (!config_.offloading_enabled()) {
+  if (!config_.offloading_supported()) {
     return;
   }
 
-  if (!offloaded_filtering_enabled_) {
-    bt_log(INFO, "hci-le", "controller filter memory available");
-    if (MemoryAvailable()) {
-      EnableOffloadedFiltering();
-    }
-
-    return;
-  }
-
-  if (!scan_id_to_index_.contains(scan_id)) {
+  if (filtering_state_ == FilteringState::kHostFiltering) {
     return;
   }
 
   bt_log(INFO, "hci-le", "deleting offloaded filters (scan id: %d)", scan_id);
-  const std::unordered_set<FilterIndex>& filter_indexes =
-      scan_id_to_index_.get(scan_id).value();
-  for (FilterIndex filter_index : filter_indexes) {
+  for (FilterIndex filter_index : scan_id_to_index_[scan_id]) {
     CommandPacket packet = BuildUnsetParametersCommand(filter_index);
     hci_cmd_runner_->QueueCommand(std::move(packet));
   }
-  scan_id_to_index_.remove(scan_id);
+  scan_id_to_index_.erase(scan_id);
 
   if (!hci_cmd_runner_->IsReady()) {
     return;
@@ -184,7 +169,7 @@ AdvertisingPacketFilter::Matches(const AdvertisingData::ParseResult& ad,
                                  int8_t rssi) const {
   std::unordered_set<ScanId> result;
 
-  for (uint16_t scan_id : scan_ids_) {
+  for (const auto& [scan_id, _] : scan_id_to_filters_) {
     if (Matches(scan_id, ad, connectable, rssi)) {
       result.insert(scan_id);
     }
@@ -223,21 +208,42 @@ bool AdvertisingPacketFilter::Matches(ScanId scan_id,
 
 std::optional<AdvertisingPacketFilter::FilterIndex>
 AdvertisingPacketFilter::NextFilterIndex() {
-  if (scan_id_to_index_.size_many() >= config_.max_filters()) {
+  if (NumFilterIndexesInUse() >= config_.max_filters()) {
     return std::nullopt;
   }
 
   FilterIndex value = last_filter_index_;
   do {
     value = (value + 1) % config_.max_filters();
-  } while (scan_id_to_index_.contains(value));
+  } while (IsFilterIndexInUse(value));
 
   last_filter_index_ = value;
   return value;
 }
 
+size_t AdvertisingPacketFilter::NumFilterIndexesInUse() const {
+  size_t result = 0;
+
+  for (const auto& [_, filter_indexes] : scan_id_to_index_) {
+    result += filter_indexes.size();
+  }
+
+  return result;
+}
+
+bool AdvertisingPacketFilter::IsFilterIndexInUse(
+    FilterIndex filter_index) const {
+  for (const auto& [_, filter_indexes] : scan_id_to_index_) {
+    if (filter_indexes.count(filter_index) != 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool AdvertisingPacketFilter::MemoryAvailable() const {
-  if (!config_.offloading_enabled()) {
+  if (!config_.offloading_supported()) {
     return false;
   }
 
@@ -246,8 +252,7 @@ bool AdvertisingPacketFilter::MemoryAvailable() const {
     total_filters += filters.size();
   }
 
-  size_t num_filters_offloaded = scan_id_to_index_.size_many();
-  if (num_filters_offloaded + total_filters > config_.max_filters()) {
+  if (NumFilterIndexesInUse() + total_filters > config_.max_filters()) {
     return false;
   }
 
@@ -273,12 +278,11 @@ bool AdvertisingPacketFilter::MemoryAvailable() const {
 bool AdvertisingPacketFilter::MemoryAvailableForFilter(
     const DiscoveryFilter& filter,
     std::unordered_map<OffloadedFilterType, uint8_t>& new_slots) const {
-  if (!config_.offloading_enabled()) {
+  if (!config_.offloading_supported()) {
     return false;
   }
 
-  size_t num_filters_offloaded = scan_id_to_index_.size_many();
-  if (num_filters_offloaded + 1 > config_.max_filters()) {
+  if (NumFilterIndexesInUse() + 1 > config_.max_filters()) {
     return false;
   }
 
@@ -325,12 +329,11 @@ bool AdvertisingPacketFilter::MemoryAvailableForFilter(
 
 bool AdvertisingPacketFilter::MemoryAvailableForFilters(
     const std::vector<DiscoveryFilter>& filters) const {
-  if (!config_.offloading_enabled()) {
+  if (!config_.offloading_supported()) {
     return false;
   }
 
-  size_t num_filters_offloaded = scan_id_to_index_.size_many();
-  if (num_filters_offloaded + filters.size() > config_.max_filters()) {
+  if (NumFilterIndexesInUse() + filters.size() > config_.max_filters()) {
     return false;
   }
 
@@ -353,7 +356,7 @@ bool AdvertisingPacketFilter::MemoryAvailableForFilters(
 
 bool AdvertisingPacketFilter::MemoryAvailableForSlots(
     OffloadedFilterType filter_type, uint8_t slots) const {
-  if (!config_.offloading_enabled()) {
+  if (!config_.offloading_supported()) {
     return false;
   }
 
@@ -371,7 +374,7 @@ bool AdvertisingPacketFilter::MemoryAvailableForSlots(
 }
 
 void AdvertisingPacketFilter::EnableOffloadedFiltering() {
-  if (offloaded_filtering_enabled_) {
+  if (filtering_state_ == FilteringState::kOffloadedFiltering) {
     return;
   }
 
@@ -400,11 +403,11 @@ void AdvertisingPacketFilter::EnableOffloadedFiltering() {
     }
   });
 
-  offloaded_filtering_enabled_ = true;
+  filtering_state_ = FilteringState::kOffloadedFiltering;
 }
 
 void AdvertisingPacketFilter::DisableOffloadedFiltering() {
-  if (!offloaded_filtering_enabled_) {
+  if (filtering_state_ == FilteringState::kHostFiltering) {
     return;
   }
 
@@ -423,7 +426,7 @@ void AdvertisingPacketFilter::DisableOffloadedFiltering() {
   ResetOpenSlots();
   last_filter_index_ = kStartFilterIndex;
   scan_id_to_index_.clear();
-  offloaded_filtering_enabled_ = false;
+  filtering_state_ = FilteringState::kHostFiltering;
 }
 
 bool AdvertisingPacketFilter::IsOffloadable(const DiscoveryFilter& filter) {
@@ -446,7 +449,7 @@ bool AdvertisingPacketFilter::Offload(ScanId scan_id,
   }
 
   FilterIndex filter_index = filter_index_opt.value();
-  scan_id_to_index_.put(scan_id, filter_index);
+  scan_id_to_index_[scan_id].insert(filter_index);
 
   CommandPacket set_parameters =
       BuildSetParametersCommand(filter_index, filter);

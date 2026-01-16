@@ -15,7 +15,7 @@
 #include "pw_channel/test_packet_channel.h"
 
 #include "pw_allocator/testing.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/poll.h"
 #include "pw_unit_test/framework.h"
@@ -31,7 +31,7 @@ class TestPacketReaderWriterTest : public ::testing::Test {
 
   pw::allocator::test::AllocatorForTest<512> allocator_;
   pw::channel::TestPacketReaderWriter<const char*> channel_;
-  pw::async2::Dispatcher dispatcher_;
+  pw::async2::DispatcherForTest dispatcher_;
 };
 
 TEST_F(TestPacketReaderWriterTest, Read) {
@@ -44,10 +44,10 @@ TEST_F(TestPacketReaderWriterTest, Read) {
   });
 
   dispatcher_.Post(task);
-  EXPECT_TRUE(dispatcher_.RunUntilStalled(task).IsPending());
+  EXPECT_TRUE(dispatcher_.RunUntilStalled());
   channel_.EnqueueReadPacket("hello");
 
-  EXPECT_TRUE(dispatcher_.RunUntilStalled(task).IsReady());
+  dispatcher_.RunToCompletion();
   EXPECT_EQ(completed, 1);
 }
 
@@ -71,11 +71,11 @@ TEST_F(TestPacketReaderWriterTest, Write) {
   channel_.SetAvailableWrites(0);
 
   dispatcher_.Post(task);
-  EXPECT_TRUE(dispatcher_.RunUntilStalled(task).IsPending());
+  EXPECT_TRUE(dispatcher_.RunUntilStalled());
   EXPECT_EQ(completed, 0);
 
   channel_.SetAvailableWrites(3);
-  EXPECT_TRUE(dispatcher_.RunUntilStalled(task).IsReady());
+  dispatcher_.RunToCompletion();
 
   ASSERT_EQ(channel_.written_packets().size(), 3u);
   EXPECT_STREQ(channel_.written_packets()[0], "hello");

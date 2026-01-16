@@ -15,13 +15,14 @@
 #include "pw_async2/allocate_task.h"
 
 #include "pw_allocator/testing.h"
+#include "pw_async2/dispatcher_for_test.h"
 
 namespace {
 
 using ::pw::allocator::test::AllocatorForTest;
 using ::pw::async2::AllocateTask;
 using ::pw::async2::Context;
-using ::pw::async2::Dispatcher;
+using ::pw::async2::DispatcherForTest;
 using ::pw::async2::Pending;
 using ::pw::async2::Poll;
 using ::pw::async2::Ready;
@@ -74,50 +75,48 @@ class Pendable {
 
 TEST(AllocateTask, AllocatesWithRvalue) {
   AllocatorForTest<256> alloc;
-  Dispatcher dispatcher;
   PendableStatus status = {};
   Pendable pendable(status);
   Task* task = AllocateTask(alloc, std::move(pendable));
   ASSERT_NE(task, nullptr);
   EXPECT_NE(alloc.allocate_size(), alloc.deallocate_size());
-  task->Destroy();
+  alloc.Delete(task);
   EXPECT_EQ(alloc.allocate_size(), alloc.deallocate_size());
 }
 
 TEST(AllocateTask, AllocatesWithArgs) {
   AllocatorForTest<256> alloc;
-  Dispatcher dispatcher;
   PendableStatus status = {};
   Task* task = AllocateTask<Pendable>(alloc, status);
   ASSERT_NE(task, nullptr);
   EXPECT_NE(alloc.allocate_size(), alloc.deallocate_size());
-  task->Destroy();
+  alloc.Delete(task);
   EXPECT_EQ(alloc.allocate_size(), alloc.deallocate_size());
 }
 
 TEST(AllocateTask, DestroysOnceAfterPendReturnsReady) {
   AllocatorForTest<256> alloc;
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendableStatus status = {};
   Task* task = AllocateTask<Pendable>(alloc, status);
   ASSERT_NE(task, nullptr);
   dispatcher.Post(*task);
 
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(status.polled, 1);
   EXPECT_EQ(status.destroyed, 0);
 
-  std::move(status.last_waker).Wake();
+  status.last_waker.Wake();
   status.should_finish = true;
 
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(status.polled, 2);
   EXPECT_EQ(status.destroyed, 1);
 
   // Ensure that the allocated task is not polled or destroyed again after being
   // deallocated.
-  std::move(status.last_waker).Wake();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  status.last_waker.Wake();
+  dispatcher.RunToCompletion();
   EXPECT_EQ(status.polled, 2);
   EXPECT_EQ(status.destroyed, 1);
 }

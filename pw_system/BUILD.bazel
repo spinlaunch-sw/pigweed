@@ -633,6 +633,7 @@ cc_library(
         "//pw_allocator:synchronized_allocator",
         "//pw_assert:check",
         "//pw_async2:allocate_task",
+        "//pw_async2:basic_dispatcher",
         "//pw_async2:pend_func_task",
         "//pw_hdlc:router",
         "//pw_multibuf:simple_allocator",
@@ -650,7 +651,7 @@ cc_library(
     tags = ["noclangtidy"],
     deps = [
         "//pw_allocator:allocator",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_channel",
         "//pw_rpc",
     ],
@@ -670,7 +671,7 @@ cc_library(
     deps = [
         ":config",
         "//pw_allocator:allocator",
-        "//pw_async2:dispatcher",
+        "//pw_async2",
         "//pw_channel",
         "//pw_channel:forwarding_channel",
         "//pw_containers:inline_var_len_entry_queue",
@@ -710,29 +711,6 @@ pw_cc_test(
         "//pw_channel:loopback_channel",
         "//pw_multibuf:testing",
     ],
-)
-
-pw_cc_binary(
-    name = "system_async_host_example",
-    testonly = True,
-    srcs = ["system_async_host_example.cc"],
-    features = [
-        "-conversion_warnings",
-        "-ctad_warnings",
-    ],
-    deps = [
-        ":async",
-        "//pw_assert:check",
-        "//pw_channel:epoll_channel",
-        "//pw_multibuf:testing",
-    ],
-)
-
-platform_data(
-    name = "system_async_host_simulator_example",
-    testonly = True,
-    platform = "//targets/host_device_simulator",
-    target = ":system_async_host_example",
 )
 
 platform_data(

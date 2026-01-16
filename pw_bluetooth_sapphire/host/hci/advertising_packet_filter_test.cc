@@ -51,28 +51,32 @@ class AdvertisingPacketFilterTest : public TestingBase {
 
 // can set and unset packet filters
 TEST_F(AdvertisingPacketFilterTest, SetUnsetPacketFilters) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
-  ASSERT_EQ(0u, packet_filter.scan_ids().size());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
+  ASSERT_EQ(0u, packet_filter.NumScanIds());
 
   packet_filter.SetPacketFilters(0, {});
-  ASSERT_EQ(1u, packet_filter.scan_ids().size());
-  EXPECT_EQ(1u, packet_filter.scan_ids().count(0));
+  ASSERT_EQ(1u, packet_filter.NumScanIds());
 
   packet_filter.UnsetPacketFilters(0);
-  ASSERT_EQ(0u, packet_filter.scan_ids().size());
-  EXPECT_EQ(0u, packet_filter.scan_ids().count(0));
+  ASSERT_EQ(0u, packet_filter.NumScanIds());
 }
 
 // filtering passes if we haven't added any filters
 TEST_F(AdvertisingPacketFilterTest, FilterWithNoScanId) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
   EXPECT_TRUE(packet_filter.Matches(
       0, fit::error(AdvertisingData::ParseError::kMissing), true, 0));
 }
 
 // filtering passes if we have added an empty filter
 TEST_F(AdvertisingPacketFilterTest, FilterWithEmptyFilters) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
   packet_filter.SetPacketFilters(0, {});
   EXPECT_TRUE(packet_filter.Matches(
       0, fit::error(AdvertisingData::ParseError::kMissing), true, 0));
@@ -80,7 +84,9 @@ TEST_F(AdvertisingPacketFilterTest, FilterWithEmptyFilters) {
 
 // filtering passes if we have a simple filter
 TEST_F(AdvertisingPacketFilterTest, Filter) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
 
   DiscoveryFilter filter;
   filter.set_connectable(true);
@@ -94,7 +100,9 @@ TEST_F(AdvertisingPacketFilterTest, Filter) {
 
 // filtering passes only on the correct filter
 TEST_F(AdvertisingPacketFilterTest, MultipleScanIds) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
 
   DiscoveryFilter filter_a;
   filter_a.set_connectable(true);
@@ -124,7 +132,9 @@ TEST_F(AdvertisingPacketFilterTest, MultipleScanIds) {
 
 // can update a filter by replacing it
 TEST_F(AdvertisingPacketFilterTest, SetPacketFiltersReplacesPrevious) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
 
   packet_filter.SetPacketFilters(0, {});
   EXPECT_TRUE(packet_filter.Matches(
@@ -142,21 +152,25 @@ TEST_F(AdvertisingPacketFilterTest, SetPacketFiltersReplacesPrevious) {
 
 // offloading isn't started if we don't ask for it
 TEST_F(AdvertisingPacketFilterTest, OffloadingRemainsDisabledIfConfiguredOff) {
-  AdvertisingPacketFilter packet_filter({false, 0}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/0},
+      transport()->GetWeakPtr());
   packet_filter.SetPacketFilters(0, {});
 
   RunUntilIdle();
-  EXPECT_FALSE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_FALSE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_FALSE(test_device()->packet_filter_state().enabled);
 }
 
 // offloading doesn't begin until we actually have a filter to offload
 TEST_F(AdvertisingPacketFilterTest, OffloadingEnabledOnFirstOffloadableFilter) {
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
 
   // No filters to offload
   RunUntilIdle();
-  EXPECT_FALSE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_FALSE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_FALSE(test_device()->packet_filter_state().enabled);
 
   // A filter with no attributes that can be offloaded
@@ -164,7 +178,7 @@ TEST_F(AdvertisingPacketFilterTest, OffloadingEnabledOnFirstOffloadableFilter) {
   filter_1.set_connectable(true);
   packet_filter.SetPacketFilters(0, {filter_1});
   RunUntilIdle();
-  EXPECT_FALSE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_FALSE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_FALSE(test_device()->packet_filter_state().enabled);
 
   // First offloadable filter enables offloading
@@ -172,21 +186,22 @@ TEST_F(AdvertisingPacketFilterTest, OffloadingEnabledOnFirstOffloadableFilter) {
   filter_2.set_name_substring("bort");
   packet_filter.SetPacketFilters(0, {filter_2});
   RunUntilIdle();
-  EXPECT_TRUE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_TRUE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_TRUE(test_device()->packet_filter_state().enabled);
 }
 
 // disable offloading if we can't store all filters on chip
-TEST_F(AdvertisingPacketFilterTest,
-       DISABLED_OffloadingDisabledIfMemoryUnavailable) {
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
+TEST_F(AdvertisingPacketFilterTest, OffloadingDisabledIfMemoryUnavailable) {
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
 
   DiscoveryFilter filter_a;
   filter_a.set_name_substring("bluetooth");
   packet_filter.SetPacketFilters(0, {filter_a});
   RunUntilIdle();
 
-  EXPECT_TRUE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_TRUE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_TRUE(test_device()->packet_filter_state().enabled);
 
   DiscoveryFilter filter_b;
@@ -194,14 +209,16 @@ TEST_F(AdvertisingPacketFilterTest,
   packet_filter.SetPacketFilters(1, {filter_b});
   RunUntilIdle();
 
-  EXPECT_FALSE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_FALSE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_FALSE(test_device()->packet_filter_state().enabled);
 }
 
 // reeneable offloading if we remove filters and memory is now available on the
 // Controller
 TEST_F(AdvertisingPacketFilterTest, OffloadingReenabledIfMemoryAvailable) {
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
 
   DiscoveryFilter filter_a;
   filter_a.set_name_substring("bluetooth");
@@ -213,20 +230,21 @@ TEST_F(AdvertisingPacketFilterTest, OffloadingReenabledIfMemoryAvailable) {
   packet_filter.SetPacketFilters(1, {filter_b});
   RunUntilIdle();
 
-  EXPECT_FALSE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_FALSE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_FALSE(test_device()->packet_filter_state().enabled);
 
   packet_filter.UnsetPacketFilters(1);
   RunUntilIdle();
 
-  EXPECT_TRUE(packet_filter.IsOffloadedFilteringEnabled());
+  EXPECT_TRUE(packet_filter.IsUsingOffloadedFiltering());
   EXPECT_TRUE(test_device()->packet_filter_state().enabled);
 }
 
 // replace filters if we send a new set with the same scan id
-TEST_F(AdvertisingPacketFilterTest,
-       DISABLED_OffloadingSetPacketFiltersReplaces) {
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
+TEST_F(AdvertisingPacketFilterTest, OffloadingSetPacketFiltersReplaces) {
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
 
   DiscoveryFilter filter_a;
   filter_a.set_name_substring("foo");
@@ -254,11 +272,12 @@ TEST_F(AdvertisingPacketFilterTest,
 }
 
 // service uuid filter is sent to the controller
-TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingServiceUUID) {
+TEST_F(AdvertisingPacketFilterTest, OffloadingServiceUUID) {
   UUID uuid(kUuid);
 
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
-
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
   DiscoveryFilter filter;
   filter.set_service_uuids({uuid});
   packet_filter.SetPacketFilters(0, {filter});
@@ -277,11 +296,12 @@ TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingServiceUUID) {
 }
 
 // solicitation uuid filter is sent to the controller
-TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingSolicitationUUID) {
+TEST_F(AdvertisingPacketFilterTest, OffloadingSolicitationUUID) {
   UUID uuid(kUuid);
 
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
-
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
   DiscoveryFilter filter;
   filter.set_solicitation_uuids({uuid});
   packet_filter.SetPacketFilters(0, {filter});
@@ -300,9 +320,10 @@ TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingSolicitationUUID) {
 }
 
 // local name filter is sent to the controller
-TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingNameSubstring) {
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
-
+TEST_F(AdvertisingPacketFilterTest, OffloadingNameSubstring) {
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
   DiscoveryFilter filter;
   filter.set_name_substring("bluetooth");
   packet_filter.SetPacketFilters(0, {filter});
@@ -320,11 +341,12 @@ TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingNameSubstring) {
 }
 
 // service data uuid filter is sent to the controller
-TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingServiceDataUUID) {
+TEST_F(AdvertisingPacketFilterTest, OffloadingServiceDataUUID) {
   UUID uuid(kUuid);
 
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
-
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
   DiscoveryFilter filter;
   filter.set_service_data_uuids({uuid});
   packet_filter.SetPacketFilters(0, {filter});
@@ -343,9 +365,10 @@ TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingServiceDataUUID) {
 }
 
 // manufacturer code filter is sent to the controller
-TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingManufacturerCode) {
-  AdvertisingPacketFilter packet_filter({true, 1}, transport()->GetWeakPtr());
-
+TEST_F(AdvertisingPacketFilterTest, OffloadingManufacturerCode) {
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
   DiscoveryFilter filter;
   filter.set_manufacturer_code(kUuid);
   packet_filter.SetPacketFilters(0, {filter});
@@ -361,6 +384,56 @@ TEST_F(AdvertisingPacketFilterTest, DISABLED_OffloadingManufacturerCode) {
   RunUntilIdle();
 
   ASSERT_TRUE(test_device()->packet_filter_state().filters.empty());
+}
+
+// Ensure we don't try enabling packet filtering if the constructor was told the
+// feature is disabled
+TEST_F(AdvertisingPacketFilterTest, UnsetFiltersDoesntEnableWhenFeatureOff) {
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/false, /*max_filters=*/1},
+      transport()->GetWeakPtr());
+
+  DiscoveryFilter filter;
+  filter.set_name_substring("bluetooth");
+  packet_filter.SetPacketFilters(0, {filter});
+  RunUntilIdle();
+  ASSERT_FALSE(test_device()->packet_filter_state().enabled);
+
+  packet_filter.UnsetPacketFilters(0);
+  RunUntilIdle();
+  ASSERT_FALSE(test_device()->packet_filter_state().enabled);
+}
+
+// Ensure UnsetPacketFiltersInternal does not inadvertently re-enable offloaded
+// filtering
+TEST_F(AdvertisingPacketFilterTest, UnsetFiltersDoesntInadvertentlyEnable) {
+  AdvertisingPacketFilter packet_filter(
+      {/*offloading_supported=*/true, /*max_filters=*/1},
+      transport()->GetWeakPtr());
+
+  DiscoveryFilter filter_a;
+  filter_a.set_name_substring("bluetooth");
+  packet_filter.SetPacketFilters(0, {filter_a});
+  RunUntilIdle();
+  ASSERT_TRUE(packet_filter.IsUsingOffloadedFiltering());
+  ASSERT_TRUE(test_device()->packet_filter_state().enabled);
+
+  DiscoveryFilter filter_b;
+  filter_b.set_name_substring("fuchsia");
+  packet_filter.SetPacketFilters(1, {filter_b});
+  RunUntilIdle();
+
+  // Offloading should now be disabled because max_filters is 1 but two filters
+  // were added
+  ASSERT_FALSE(packet_filter.IsUsingOffloadedFiltering());
+  ASSERT_FALSE(test_device()->packet_filter_state().enabled);
+
+  packet_filter.SetPacketFilters(0, {});
+  RunUntilIdle();
+
+  // Offloading should still be disabled because filter_b is still present
+  ASSERT_FALSE(packet_filter.IsUsingOffloadedFiltering());
+  ASSERT_FALSE(test_device()->packet_filter_state().enabled);
 }
 
 }  // namespace bt::hci

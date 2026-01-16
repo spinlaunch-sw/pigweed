@@ -202,18 +202,34 @@ macro(_pw_add_library_multi_value_args variable)
                     PUBLIC_LINK_OPTIONS PRIVATE_LINK_OPTIONS "${ARGN}")
 endmacro()
 
-function(_pw_sandbox_files sandbox_dir files_var)
+function(_pw_sandbox_paths sandbox_dir paths_var)
   set(result "")
-  foreach(file IN LISTS ${files_var})
-    set(destination "${sandbox_dir}/${file}")
-    message(DEBUG "Sandbox '${file}' as '${destination}'")
-    cmake_path(GET destination PARENT_PATH directory)
-    file(MAKE_DIRECTORY "${directory}")
-    cmake_path(ABSOLUTE_PATH file OUTPUT_VARIABLE absolute)
-    file(CREATE_LINK "${absolute}" "${destination}" SYMBOLIC)
-    list(APPEND result "${destination}")
+  set(parent_dir "..")
+  foreach(path IN LISTS ${paths_var})
+    cmake_path(ABSOLUTE_PATH path NORMALIZE)
+    cmake_path(RELATIVE_PATH path OUTPUT_VARIABLE relative_file)
+
+    cmake_path(IS_PREFIX parent_dir "${relative_file}" in_parent_directory)
+    if(in_parent_directory)
+      message(FATAL_ERROR
+        "File paths must be nested under the current directory; "
+        "'${path}' is not nested under ${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+
+    if(IS_DIRECTORY "${path}")
+      message(DEBUG "Sandboxing include '${path}' as '${sandbox_dir}/${relative_file}'")
+      list(APPEND result "${sandbox_dir}/${relative_file}")
+    else()
+      set(destination "${sandbox_dir}/${relative_file}")
+      message(DEBUG "Sandboxing '${path}' as '${destination}'")
+      cmake_path(GET destination PARENT_PATH directory)
+      file(MAKE_DIRECTORY "${directory}")
+      cmake_path(ABSOLUTE_PATH path OUTPUT_VARIABLE absolute)
+      file(CREATE_LINK "${absolute}" "${destination}" SYMBOLIC)
+      list(APPEND result "${destination}")
+    endif()
   endforeach()
-  set("${files_var}" ${result} PARENT_SCOPE)
+  set("${paths_var}" ${result} PARENT_SCOPE)
 endfunction()
 
 # pw_add_library_generic: Creates a CMake library target.
@@ -228,6 +244,7 @@ endfunction()
 #
 #   SOURCES - source files for this library
 #   HEADERS - header files for this library
+#   GENERATED_HEADERS - headers that will be generated when the target is built
 #   PUBLIC_DEPS - public pw_target_link_targets arguments
 #   PRIVATE_DEPS - private pw_target_link_targets arguments
 #   PUBLIC_INCLUDES - public target_include_directories argument
@@ -259,6 +276,7 @@ function(pw_add_library_generic NAME TYPE)
       SANDBOX
     MULTI_VALUE_ARGS
       ${multi_value_args}
+      GENERATED_HEADERS
       PRIVATE_COMPILE_OPTIONS_DEPS_BEFORE
   )
 
@@ -291,36 +309,39 @@ function(pw_add_library_generic NAME TYPE)
 
   # Default sandboxing to the global pw_ENABLE_CC_SANDBOX option.
   if("${arg_SANDBOX}" STREQUAL "")
-    set(arg_SANDBOX "${pw_ENABLE_CC_SANDBOX}")
+    set(sandbox_enabled "${pw_ENABLE_CC_SANDBOX}")
+  else()
+    set(sandbox_enabled "${arg_SANDBOX}")
   endif()
 
-  if(arg_SANDBOX)
-    foreach(path IN LISTS arg_HEADERS arg_SOURCES)
-      # Skip sandboxing absolute paths for now.
-      cmake_path(IS_ABSOLUTE path is_absolute)
-      if(is_absolute)
-        message(DEBUG "Skipping sandboxing ${NAME} due to absolute path ${path}")
-        set(arg_SANDBOX OFF)
-        break()
-      endif()
-
-      # Don't sandbox files that don't exist yet.
+  if(sandbox_enabled)
+    foreach(path IN LISTS arg_GENERATED_HEADERS arg_HEADERS arg_SOURCES
+        arg_PUBLIC_INCLUDES arg_PRIVATE_INCLUDES)
+      # Don't sandbox files that don't exist yet or are generator expressions.
       cmake_path(ABSOLUTE_PATH path OUTPUT_VARIABLE absolute)
       if(NOT EXISTS "${absolute}" OR "${path}" MATCHES ".*\\$<.+>.*")
-        message(DEBUG "Skipping sandboxing ${NAME} due to generated file ${path}")
-        set(arg_SANDBOX OFF)
+        if(NOT "${arg_SANDBOX}" STREQUAL "" AND arg_SANDBOX)
+          message(FATAL_ERROR "Sandboxing is enabled for ${NAME}, but the path "
+            "'${path}' does not exist or is a generator expression. This is "
+            "not currently supported.")
+        endif()
+
+        message(DEBUG
+          "Skipping sandboxing ${NAME} due to generated file '${path}'")
+        set(sandbox_enabled OFF)
         break()
       endif()
     endforeach()
 
-    if(arg_SANDBOX)
+    if(sandbox_enabled)
       file(REMOVE_RECURSE "${sandbox_dir}")
-      _pw_sandbox_files("${sandbox_dir}" arg_HEADERS)
-      _pw_sandbox_files("${sandbox_dir}" arg_SOURCES)
-      list(TRANSFORM arg_PRIVATE_INCLUDES PREPEND "${sandbox_dir}/")
-      list(TRANSFORM arg_PUBLIC_INCLUDES PREPEND "${sandbox_dir}/")
+      _pw_sandbox_paths("${sandbox_dir}" arg_HEADERS)
+      _pw_sandbox_paths("${sandbox_dir}" arg_SOURCES)
+      _pw_sandbox_paths("${sandbox_dir}" arg_PRIVATE_INCLUDES)
+      _pw_sandbox_paths("${sandbox_dir}" arg_PUBLIC_INCLUDES)
     endif()
   endif()
+  list(APPEND arg_HEADERS ${arg_GENERATED_HEADERS})
 
   if("${TYPE}" STREQUAL "INTERFACE")
     if(NOT "${arg_SOURCES}" STREQUAL "")

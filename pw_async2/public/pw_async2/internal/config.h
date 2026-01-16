@@ -15,20 +15,10 @@
 // Configuration macros for the pw_async2 module.
 #pragma once
 
-/// @submodule{pw_async2,core}
-
-/// The log level to use for this module. Logs below this level are omitted.
-#ifndef PW_ASYNC2_CONFIG_LOG_LEVEL
-#define PW_ASYNC2_CONFIG_LOG_LEVEL PW_LOG_LEVEL_INFO
-#endif  // PW_ASYNC2_CONFIG_LOG_LEVEL
-
-/// The log module name to use for this module.
-#ifndef PW_ASYNC2_CONFIG_LOG_MODULE_NAME
-#define PW_ASYNC2_CONFIG_LOG_MODULE_NAME "PW_ASYNC2"
-#endif  // PW_ASYNC2_CONFIG_LOG_MODULE_NAME
+/// @submodule{pw_async2,wakers}
 
 /// Controls how the ``wait_reason_string`` argument to
-/// @c_macro{PW_ASYNC_STORE_WAKER} and @c_macro{PW_ASYNC_CLONE_WAKER} is used.
+/// ``PW_ASYNC_STORE_WAKER`` and ``PW_ASYNC_CLONE_WAKER`` is used.
 /// If enabled, wait reasons are stored within their wakers, allowing easier
 /// debugging of sleeping tasks.
 ///
@@ -46,4 +36,4 @@
 #define PW_ASYNC2_DEBUG_WAIT_REASON 1
 #endif  // PW_ASYNC2_DEBUG_WAIT_REASON
 
-/// @}
+/// @endsubmodule

@@ -19,36 +19,20 @@
 #include <algorithm>
 
 #include "pw_chrono/system_clock.h"
-#include "pw_chrono_zephyr/system_clock_constants.h"
 #include "pw_thread/sleep.h"
+
+#ifndef CONFIG_TIMEOUT_64BIT
 
 namespace pw::this_thread {
 
-inline void sleep_for(chrono::SystemClock::duration sleep_duration) {
-  sleep_until(chrono::SystemClock::TimePointAfterAtLeast(sleep_duration));
-}
-
-inline void sleep_until(chrono::SystemClock::time_point wakeup_time) {
-  chrono::SystemClock::time_point now = chrono::SystemClock::now();
-
-  // Check if the expiration deadline has already passed, yield.
-  if (wakeup_time <= now) {
-    k_yield();
-    return;
-  }
-
-  // The maximum amount of time we should sleep for in a single command.
-  constexpr chrono::SystemClock::duration kMaxTimeoutMinusOne =
-      pw::chrono::zephyr::kMaxTimeout - chrono::SystemClock::duration(1);
-
-  while (now < wakeup_time) {
-    // Sleep either the full remaining duration or the maximum timeout
-    k_sleep(Z_TIMEOUT_TICKS(
-        std::min((wakeup_time - now).count(), kMaxTimeoutMinusOne.count())));
-
-    // Check how much time has passed, the scheduler can wake us up early.
-    now = chrono::SystemClock::now();
-  }
+void sleep_until(chrono::SystemClock::time_point wakeup_time) {
+  // With 32-bit timers, sleeping until a time point is not supported. Instead
+  // fall back to sleep for the duration until the upcoming time point. Note
+  // that the "at least" wait is not needed as zephyr already will add this for
+  // duration waits internally.
+  return sleep_for(wakeup_time - chrono::SystemClock::now());
 }
 
 }  // namespace pw::this_thread
+
+#endif  // CONFIG_TIMEOUT_64BIT

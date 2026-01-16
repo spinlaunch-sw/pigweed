@@ -206,6 +206,12 @@ enum OpCode:
   SNIFF_MODE                                                   = 0x0803
     -- Sniff Mode Command
 
+  EXIT_SNIFF_MODE                                              = 0x0804
+    -- Exit Sniff Mode Command
+
+  SNIFF_SUBRATING                                              = 0x0811
+    -- Sniff Subrating Command
+
   ### Controller & Baseband Commands - Core Spec v5.0 Vol 2, Part E, Section 7.3 (OGF 0x03)
 
   SET_EVENT_MASK                                               = 0x0C01
@@ -409,6 +415,11 @@ enum OpCode:
 
   READ_ENCRYPTION_KEY_SIZE                                     = 0x1408
     -- Read Encryption Key Size (v1.1) (BR/EDR)
+
+  ### Testing Commands - Core Spec v6.1, Vol 4, Part E, Section 7.6 (OGF 0x06)
+
+  WRITE_SIMPLE_PAIRING_DEBUG_MODE                              = 0x1804
+    -- Write Simple Pairing Debug Mode (v2.1 + EDR)
 
   ### LE Controller Commands - Core Spec v5.0 Vol 2, Part E, Section 7.8 (OGF 0x08)
 

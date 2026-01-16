@@ -217,7 +217,7 @@ void IsoStreamManager::AcceptCisRequest(
                                          self->streams_[id]->GetWeakPtr());
   };
 
-  cmd_->SendCommand(std::move(command), cmd_complete_cb);
+  cmd_->SendCommand(std::move(command), cmd_complete_cb).IgnoreError();
 }
 
 void IsoStreamManager::RejectCisRequest(
@@ -240,7 +240,8 @@ void IsoStreamManager::RejectCisRequest(
                                    "bt-iso",
                                    "reject CIS request failed for handle %#x",
                                    cis_handle);
-                    });
+                    })
+      .IgnoreError();
 }
 
 }  // namespace bt::iso

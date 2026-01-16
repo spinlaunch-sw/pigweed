@@ -15,14 +15,13 @@
 #include "coin_slot.h"
 
 #include "pw_async2/context.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/poll.h"
 #include "pw_async2/try.h"
 #include "pw_unit_test/framework.h"
 
 using ::pw::async2::Context;
-using ::pw::async2::Pending;
 using ::pw::async2::Poll;
 using ::pw::async2::Ready;
 
@@ -37,14 +36,15 @@ TEST(CoinSlotTest, PendAndDeposit) {
     return Ready();
   });
 
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
   dispatcher.Post(task);
 
-  ASSERT_EQ(dispatcher.RunUntilStalled(), Pending()) << "No deposits yet";
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
+  EXPECT_EQ(coins, 0u) << "No deposits yet";
 
   coin_slot.Deposit();
 
-  ASSERT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(coins, 1u);
 }
 
@@ -62,19 +62,20 @@ TEST(CoinSlotTest, MultipleDeposits) {
     unsigned int total_coins = 0;
   } task;
 
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
   dispatcher.Post(task);
 
-  ASSERT_EQ(dispatcher.RunUntilStalled(), Pending()) << "No deposits yet";
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
+  EXPECT_EQ(task.total_coins, 0u) << "No deposits yet";
 
   task.coin_slot.Deposit();
   task.coin_slot.Deposit();
   task.coin_slot.Deposit();
 
-  ASSERT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(task.total_coins, 3u);
 
-  ASSERT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(task.total_coins, 3u) << "No more deposits yet";
 
   task.coin_slot.Deposit();
@@ -82,7 +83,7 @@ TEST(CoinSlotTest, MultipleDeposits) {
 
   EXPECT_EQ(task.total_coins, 3u) << "More deposits, but haven't run the task";
 
-  ASSERT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(task.total_coins, 5u);
 }
 

@@ -96,7 +96,7 @@ pw_add_library(pw_allocator.async_pool STATIC
   PUBLIC_DEPS
     pw_allocator
     pw_allocator.pool
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
   SOURCES
     async_pool.cc
@@ -378,6 +378,19 @@ pw_add_library(pw_allocator.libc_allocator STATIC
     pw_allocator
 )
 
+pw_add_library(pw_allocator.freertos_allocator STATIC
+  HEADERS
+    public/pw_allocator/freertos_allocator.h
+  PUBLIC_INCLUDES
+    public
+  PUBLIC_DEPS
+    pw_allocator
+  SOURCES
+    freertos_allocator.cc
+  PRIVATE_DEPS
+    pw_third_party.freertos
+)
+
 pw_add_library(pw_allocator.null_allocator STATIC
   SOURCES
     null_allocator.cc
@@ -637,8 +650,10 @@ pw_add_test(pw_allocator.async_pool_test
     pw_allocator.async_pool
     pw_allocator.chunk_pool
     pw_allocator.testing
-    pw_async2.dispatcher
+    pw_allocator.testing
+    pw_async2
     pw_async2.pend_func_task
+    pw_async2.testing
   GROUPS
     modules
     pw_allocator

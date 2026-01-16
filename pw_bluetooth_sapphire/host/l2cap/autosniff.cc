@@ -34,6 +34,9 @@ const char* AclModeString(pw::bluetooth::emboss::AclConnectionMode mode) {
   }
 }
 
+const char* kInspectSuppressionPrefix = "suppress_";
+const char* kInspectCurrentModePropertyName = "sniff_mode";
+
 }  // namespace
 
 Autosniff::Autosniff(SniffModeParams params,
@@ -92,7 +95,9 @@ auto Autosniff::ChangeModesCallback(Autosniff::WeakPtr self_ptr,
 }
 
 void Autosniff::ResetTimeout() {
-  autosniff_timeout_.ResetTimeout();
+  if (suppression_count_ == 0) {
+    autosniff_timeout_.ResetTimeout();
+  }
   if (connection_mode_ == AclConnectionMode::ACTIVE || mode_transition_) {
     PW_LOG_EVERY_N(
         PW_LOG_LEVEL_DEBUG,
@@ -100,7 +105,7 @@ void Autosniff::ResetTimeout() {
         "Autosniff timer reset, but we are not in sniff mode - ignoring...");
     return;
   }
-  bt_log(DEBUG, "autosniff", "Connection is active, resetting autosniff timer");
+  bt_log(DEBUG, "autosniff", "Connection active, resetting autosniff timer");
 
   auto exit_sniff_mode_cmd = hci::CommandPacket::New<
       pw::bluetooth::emboss::ExitSniffModeCommandWriter>(
@@ -108,9 +113,11 @@ void Autosniff::ResetTimeout() {
   auto view = exit_sniff_mode_cmd.view_t();
   view.connection_handle().Write(handle_);
   mode_transition_ = true;
-  cmd_channel_->SendCommand(
-      std::move(exit_sniff_mode_cmd),
-      ChangeModesCallback(GetWeakPtr(), AclConnectionMode::ACTIVE));
+  cmd_channel_
+      ->SendCommand(
+          std::move(exit_sniff_mode_cmd),
+          ChangeModesCallback(GetWeakPtr(), AclConnectionMode::ACTIVE))
+      .IgnoreError();
 }
 
 hci::CommandChannel::EventCallbackResult Autosniff::OnModeChange(
@@ -132,6 +139,7 @@ hci::CommandChannel::EventCallbackResult Autosniff::OnModeChange(
   const AclConnectionMode new_mode = view.current_mode().Read();
   mode_transition_ = false;
   connection_mode_ = new_mode;
+  inspect_current_mode_.Set(AclModeString(connection_mode_));
   if (connection_mode_ != AclConnectionMode::SNIFF) {
     bt_log(DEBUG,
            "autosniff",
@@ -148,6 +156,13 @@ hci::CommandChannel::EventCallbackResult Autosniff::OnModeChange(
 }
 
 RecurringDisposition Autosniff::OnTimeout() {
+  if (suppression_count_ > 0) {
+    bt_log(INFO,
+           "autosniff",
+           "Autosniff defang based on %hhu suppressions",
+           suppression_count_);
+    return RecurringDisposition::kFinish;
+  }
   if (mode_transition_) {
     bt_log(DEBUG,
            "autosniff",
@@ -177,13 +192,73 @@ RecurringDisposition Autosniff::OnTimeout() {
   view.sniff_attempt().Write(params_.sniff_attempt);
   view.sniff_timeout().Write(params_.sniff_timeout);
   mode_transition_ = true;
-  cmd_channel_->SendCommand(
-      std::move(sniff_mode_cmd),
-      ChangeModesCallback(GetWeakPtr(), AclConnectionMode::SNIFF));
+  cmd_channel_
+      ->SendCommand(std::move(sniff_mode_cmd),
+                    ChangeModesCallback(GetWeakPtr(), AclConnectionMode::SNIFF))
+      .IgnoreError();
 
   // Note, we don't disarm here, we disarm once we come back here and know for a
   // fact we are in sniff mode as the HCI command may have failed.
   return RecurringDisposition::kRecur;
 }
+
+std::unique_ptr<AutosniffSuppressInterest> Autosniff::Suppress(
+    const char* reason) {
+  if (suppression_count_ == 0xFF) {
+    return nullptr;
+  }
+  suppression_count_ += 1;
+  ResetTimeout();
+  // Cannot use make_unique here since AutosniffSuppressInterest has a private
+  // constructor.
+  std::unique_ptr<AutosniffSuppressInterest> interest(
+      new AutosniffSuppressInterest(weak_self_.GetWeakPtr(), reason));
+  interest->AttachInspect(inspect_node_,
+                          inspect_node_.UniqueName(kInspectSuppressionPrefix));
+  return interest;
+}
+
+void Autosniff::AttachInspect(inspect::Node& parent, std::string name) {
+  if (!parent) {
+    return;
+  }
+  inspect_node_ = parent.CreateChild(name);
+  inspect_current_mode_ = inspect_node_.CreateString(
+      kInspectCurrentModePropertyName, AclModeString(connection_mode_));
+}
+
+void Autosniff::RemoveSuppression() {
+  PW_DCHECK(suppression_count_ > 0,
+            "Trying to remove a suppression but we have zero");
+  suppression_count_ -= 1;
+  if (suppression_count_ == 0) {
+    bt_log(INFO,
+           "autosniff",
+           "No more suppression interest, re-enabling autosniff (handle %#x)",
+           handle_);
+    autosniff_timeout_.Reenable();
+  }
+}
+
+AutosniffSuppressInterest::AutosniffSuppressInterest(
+    Autosniff::WeakPtr autosniff, const char* reason)
+    : reason_(reason), autosniff_(autosniff) {}
+
+void AutosniffSuppressInterest::AttachInspect(inspect::Node& parent,
+                                              std::string name) {
+  if (!parent) {
+    return;
+  }
+  inspect_reason_ = parent.CreateString(name, reason_);
+}
+
+void AutosniffSuppressInterest::Release() {
+  if (autosniff_.is_alive()) {
+    autosniff_->RemoveSuppression();
+    autosniff_.reset();
+  }
+}
+
+AutosniffSuppressInterest::~AutosniffSuppressInterest() { Release(); }
 
 }  // namespace bt::l2cap::internal

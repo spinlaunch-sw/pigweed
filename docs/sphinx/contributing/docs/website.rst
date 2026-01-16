@@ -17,7 +17,7 @@ Image hosting
 Images should not be checked into the Pigweed repository because
 it significantly slows down the repository cloning process.
 Images should instead be hosted on Pigweed's image CDN,
-``https://storage.googleapis.com/pigweed-media``.
+``https://www.gstatic.com/pigweed/``.
 
 If you're adding an image to a ``pigweed.dev`` doc, here's the
 recommended workflow:
@@ -30,6 +30,11 @@ recommended workflow:
    leave a comment on your change asking you to delete the
    checked-in image and replace the reference to it with the
    URL to the CDN-hosted image.
+
+.. _go/pigweed-gstatic: http://go/pigweed-gstatic
+
+Google employees working with external contributors should go to
+`go/pigweed-gstatic`_ to upload images.
 
 .. _contrib-docs-website-redirects:
 

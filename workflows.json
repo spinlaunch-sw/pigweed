@@ -34,21 +34,23 @@
       "name": "all_host",
       "use_config": "bazel_default",
       "targets": [
-        "//..."
+        "//...",
+        "//pw_toolchain:cpp_20_check"
       ]
     },
     {
-      "name": "all_host_cpp20",
+      "name": "all_host_cpp17",
       "build_config": {
-        "name": "bazel_default_cpp20",
-        "description": "Host C++20 build",
+        "name": "bazel_default_cpp17",
+        "description": "Host C++17 build",
         "build_type": "bazel",
         "args": [
-          "--//pw_toolchain/cc:cxx_standard=20"
+          "--//pw_toolchain/cc:cxx_standard=17"
         ]
       },
       "targets": [
-        "//..."
+        "//...",
+        "//pw_toolchain:cpp_17_check"
       ]
     },
     {
@@ -56,6 +58,42 @@
       "use_config": "bazel_default_notest",
       "targets": [
         "//docs"
+      ]
+    },
+    {
+      "name": "python_pylint",
+      "build_config": {
+        "name": "python_pylint_config",
+        "description": "pylint",
+        "build_type": "bazel",
+        "args": [
+          "--config=pylint"
+        ],
+        "driver_options": {
+          "@type": "pw.build.proto.BazelDriverOptions",
+          "no_test": true
+        }
+      },
+      "targets": [
+        "//..."
+      ]
+    },
+    {
+      "name": "python_mypy",
+      "build_config": {
+        "name": "python_mypy_config",
+        "description": "mypy",
+        "build_type": "bazel",
+        "args": [
+          "--config=mypy"
+        ],
+        "driver_options": {
+          "@type": "pw.build.proto.BazelDriverOptions",
+          "no_test": true
+        }
+      },
+      "targets": [
+        "//..."
       ]
     },
     {
@@ -105,7 +143,9 @@
         ]
       },
       "targets": [
-        "//pw_status/..."
+        "//pw_status/...",
+        "//pw_rust/examples/embedded_hello:hello",
+        "//pw_rust/examples/tokenized_logging"
       ]
     },
     {
@@ -309,13 +349,74 @@
       ]
     },
     {
-      "name": "k_lint",
+      "name": "k_host_lint",
       "build_config": {
-        "name": "k_lint_config",
-        "description": "Kernel lint config",
+        "name": "k_host_lint_config",
+        "description": "Kernel host lint config",
         "build_type": "bazel",
         "args": [
-          "--config=k_lint"
+          "--config=k_lint",
+          "--config=k_host"
+        ],
+        "env": {},
+        "driver_options": {
+          "@type": "pw.build.proto.BazelDriverOptions",
+          "no_test": true
+        }
+      },
+      "targets": [
+        "//pw_kernel/..."
+      ]
+    },
+    {
+      "name": "k_qemu_mps2_an505_lint",
+      "build_config": {
+        "name": "k_qemu_mps2_an505_lint_config",
+        "description": "Kernel QEMU MPS2 AN505 host lint config",
+        "build_type": "bazel",
+        "args": [
+          "--config=k_lint",
+          "--config=k_qemu_mps2_an505"
+        ],
+        "env": {},
+        "driver_options": {
+          "@type": "pw.build.proto.BazelDriverOptions",
+          "no_test": true
+        }
+      },
+      "targets": [
+        "//pw_kernel/..."
+      ]
+    },
+    {
+      "name": "k_qemu_virt_riscv32_lint",
+      "build_config": {
+        "name": "k_k_qemu_virt_riscv32_lint_config",
+        "description": "Kernel QEMU virt_ristv32 lint config",
+        "build_type": "bazel",
+        "args": [
+          "--config=k_lint",
+          "--config=k_qemu_virt_riscv32"
+        ],
+        "env": {},
+        "driver_options": {
+          "@type": "pw.build.proto.BazelDriverOptions",
+          "no_test": true
+        }
+      },
+      "targets": [
+        "//pw_kernel/..."
+      ]
+    },
+    {
+      "name": "k_rp2350_lint",
+      "build_config": {
+        "name": "k_rp2350_lint_config",
+        "description": "Kernel PW RP2350 lint config",
+        "build_type": "bazel",
+        "args": [
+          "--config=k_lint",
+          "--config=k_rp2350"
         ],
         "env": {},
         "driver_options": {
@@ -498,6 +599,16 @@
       "use_config": "bazel_default",
       "target": "@pigweed//:watch",
       "type": "GENERAL"
+    },
+    {
+      "name": "changelog",
+      "description": "Update the pigweed.dev changelog",
+      "use_config": "bazel_default",
+      "target": "@pigweed//docs/sphinx/changelog/py:changelog",
+      "type": "GENERAL",
+      "analyzer_friendly_args": [
+        "--check"
+      ]
     }
   ],
   "groups": [
@@ -511,23 +622,44 @@
     },
     {
       "name": "default",
-      "description": "Most common builds/configurations",
+      "description": "Common builds/configurations",
+      "builds": [
+        "lm3s6965evb",
+        "jni",
+        "googletest",
+        "asan_fuzztest",
+        "rpc_callback",
+        "grpc"
+      ]
+    },
+    {
+      "name": "host",
+      "description": "Most common host builds/configurations",
       "analyzers": [
         "compile_commands_integration_test",
         "compile_commands_performance_test"
       ],
       "builds": [
         "all_host",
-        "lm3s6965evb",
-        "jni",
-        "rust_nightly",
-        "googletest",
-        "clippy",
-        "clippy_nightly",
-        "asan_fuzztest",
-        "rpc_callback",
-        "grpc",
+        "all_host_cpp17",
         "docs"
+      ]
+    },
+    {
+      "name": "rust",
+      "description": "Rust builds/configurations",
+      "builds": [
+        "rust_nightly",
+        "clippy",
+        "clippy_nightly"
+      ]
+    },
+    {
+      "name": "python_checks",
+      "description": "Python pylint and mypy",
+      "builds": [
+        "python_pylint",
+        "python_mypy"
       ]
     },
     {
@@ -539,7 +671,10 @@
         "k_qemu_mps2_an505",
         "k_qemu_virt_riscv32",
         "k_rp2350",
-        "k_lint"
+        "k_host_lint",
+        "k_qemu_mps2_an505_lint",
+        "k_qemu_virt_riscv32_lint",
+        "k_rp2350_lint"
       ]
     },
     {

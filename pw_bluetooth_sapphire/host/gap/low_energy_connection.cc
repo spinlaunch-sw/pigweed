@@ -598,7 +598,8 @@ void LowEnergyConnection::UpdateConnectionParams(
 
   cmd_->SendCommand(std::move(command),
                     std::move(status_cb_wrapper),
-                    hci_spec::kCommandStatusEventCode);
+                    hci_spec::kCommandStatusEventCode)
+      .IgnoreError();
 }
 
 void LowEnergyConnection::OnLEConnectionUpdateComplete(

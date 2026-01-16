@@ -66,6 +66,7 @@ static constexpr const char* kInspectBrEdrConnectionManagerNodeName =
     "bredr_connection_manager";
 static constexpr const char* kInspectBrEdrDiscoveryManagerNodeName =
     "bredr_discovery_manager";
+static constexpr const char* kGattNodeName = "gatt";
 
 // All asynchronous callbacks are posted on the Loop on which this Adapter
 // instance is created.
@@ -462,14 +463,18 @@ class AdapterImpl final : public Adapter {
     bool offloading_enabled = false;
     uint8_t max_filters = 0;
 
-    constexpr pw::bluetooth::Controller::FeaturesBits feature =
-        pw::bluetooth::Controller::FeaturesBits::kAndroidVendorExtensions;
-    if (state().IsControllerFeatureSupported(feature) &&
-        state().android_vendor_capabilities.has_value() &&
-        state().android_vendor_capabilities->supports_filtering()) {
-      offloading_enabled = true;
-      max_filters = state().android_vendor_capabilities->max_filters();
-    }
+    // TODO(b/448475405): We suspect there is a bug with advertising packet
+    // filtering where we don't get scan results on time from the Controller. So
+    // as not to affect others who use Bluetooth scanning, disable advertising
+    // packet filtering for now while we investigate.
+    // constexpr pw::bluetooth::Controller::FeaturesBits feature =
+    //     pw::bluetooth::Controller::FeaturesBits::kAndroidVendorExtensions;
+    // if (state().IsControllerFeatureSupported(feature) &&
+    //     state().android_vendor_capabilities.has_value() &&
+    //     state().android_vendor_capabilities->supports_filtering()) {
+    //   offloading_enabled = true;
+    //   max_filters = state().android_vendor_capabilities->max_filters();
+    // }
 
     bt_log(INFO,
            "gap",
@@ -828,12 +833,14 @@ void AdapterImpl::SetDeviceClass(DeviceClass dev_class,
       hci_spec::kWriteClassOfDevice);
   write_dev_class.view_t().class_of_device().BackingStorage().WriteUInt(
       dev_class.to_int());
-  hci_->command_channel()->SendCommand(
-      std::move(write_dev_class),
-      [cb = std::move(callback)](auto, const hci::EventPacket& event) {
-        HCI_IS_ERROR(event, WARN, "gap", "set device class failed");
-        cb(event.ToResult());
-      });
+  hci_->command_channel()
+      ->SendCommand(
+          std::move(write_dev_class),
+          [cb = std::move(callback)](auto, const hci::EventPacket& event) {
+            HCI_IS_ERROR(event, WARN, "gap", "set device class failed");
+            cb(event.ToResult());
+          })
+      .IgnoreError();
 }
 
 void AdapterImpl::GetSupportedDelayRange(
@@ -877,24 +884,27 @@ void AdapterImpl::GetSupportedDelayRange(
                 codec_configuration_size);
   }
 
-  hci_->command_channel()->SendCommand(
-      std::move(cmd_packet),
-      [callback = std::move(cb)](auto /*id*/, const hci::EventPacket& event) {
-        auto view = event.view<
-            pw::bluetooth::emboss::
-                ReadLocalSupportedControllerDelayCommandCompleteEventView>();
-        if (HCI_IS_ERROR(event,
-                         WARN,
-                         "gap",
-                         "read local supported controller delay failed")) {
-          callback(PW_STATUS_UNKNOWN, /*min=*/0, /*max=*/0);
-          return;
-        }
-        bt_log(INFO, "gap", "controller delay read successfully");
-        callback(PW_STATUS_OK,
-                 view.min_controller_delay().Read(),
-                 view.max_controller_delay().Read());
-      });
+  hci_->command_channel()
+      ->SendCommand(
+          std::move(cmd_packet),
+          [callback = std::move(cb)](auto /*id*/,
+                                     const hci::EventPacket& event) {
+            auto view = event.view<
+                pw::bluetooth::emboss::
+                    ReadLocalSupportedControllerDelayCommandCompleteEventView>();
+            if (HCI_IS_ERROR(event,
+                             WARN,
+                             "gap",
+                             "read local supported controller delay failed")) {
+              callback(PW_STATUS_UNKNOWN, /*min=*/0, /*max=*/0);
+              return;
+            }
+            bt_log(INFO, "gap", "controller delay read successfully");
+            callback(PW_STATUS_OK,
+                     view.min_controller_delay().Read(),
+                     view.max_controller_delay().Read());
+          })
+      .IgnoreError();
 }
 
 void AdapterImpl::AttachInspect(inspect::Node& parent, std::string name) {
@@ -1637,6 +1647,8 @@ void AdapterImpl::InitializeStep4() {
       wake_lease_provider_);
   le_connection_manager_->AttachInspect(
       adapter_node_, kInspectLowEnergyConnectionManagerNodeName);
+
+  gatt_->AttachInspect(adapter_node_, kGattNodeName);
 
   le_advertising_manager_ = std::make_unique<LowEnergyAdvertisingManager>(
       hci_le_advertiser_.get(), le_address_manager_.get());

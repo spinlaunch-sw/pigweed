@@ -21,7 +21,6 @@ namespace pw::async2 {
 
 class Context;
 class Dispatcher;
-class NativeDispatcherBase;
 
 namespace internal {
 
@@ -43,7 +42,7 @@ class WakerQueueBase;
 
 }  // namespace internal
 
-/// @submodule{pw_async2,core}
+/// @submodule{pw_async2,context}
 
 /// Context for an asynchronous ``Task``.
 ///
@@ -77,7 +76,7 @@ class Context {
   /// ```
   /// Waker waker;
   /// PW_ASYNC_STORE_WAKER(cx, waker, ...);
-  /// std::move(waker).Wake();
+  /// waker.Wake();
   /// ```
   void ReEnqueue();
 
@@ -92,7 +91,7 @@ class Context {
   }
 
  private:
-  friend class NativeDispatcherBase;
+  friend class Task;
   friend bool internal::StoreWaker(Context& cx,
                                    Waker& waker_out,
                                    log::Token wait_reason);
@@ -105,6 +104,6 @@ class Context {
   bool requires_waker_;
 };
 
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

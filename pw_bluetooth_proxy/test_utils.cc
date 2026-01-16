@@ -17,6 +17,8 @@
 #include <cstdint>
 
 #include "pw_allocator/null_allocator.h"
+#include "pw_allocator/synchronized_allocator.h"
+#include "pw_allocator/testing.h"
 #include "pw_assert/check.h"
 #include "pw_bluetooth/emboss_util.h"
 #include "pw_bluetooth/hci_common.emb.h"
@@ -158,7 +160,7 @@ Result<KFrameWithStorage> SetupKFrame(uint16_t handle,
 
 // Send an LE_Read_Buffer_Size (V2) CommandComplete event to `proxy` to request
 // the reservation of a number of LE ACL send credits.
-Status SendLeReadBufferResponseFromController(
+Status ProxyHostTest::SendLeReadBufferResponseFromController(
     ProxyHost& proxy,
     uint8_t num_credits_to_reserve,
     uint16_t le_acl_data_packet_length) {
@@ -177,12 +179,14 @@ Status SendLeReadBufferResponseFromController(
   view.le_acl_data_packet_length().Write(le_acl_data_packet_length);
 
   proxy.HandleH4HciFromController(std::move(h4_packet));
+  RunDispatcher();
   return OkStatus();
 }
 
-Status SendReadBufferResponseFromController(ProxyHost& proxy,
-                                            uint8_t num_credits_to_reserve,
-                                            uint16_t acl_data_packet_length) {
+Status ProxyHostTest::SendReadBufferResponseFromController(
+    ProxyHost& proxy,
+    uint8_t num_credits_to_reserve,
+    uint16_t acl_data_packet_length) {
   std::array<uint8_t,
              emboss::ReadBufferSizeCommandCompleteEventWriter::SizeInBytes()>
       hci_arr{};
@@ -199,14 +203,56 @@ Status SendReadBufferResponseFromController(ProxyHost& proxy,
   EXPECT_TRUE(view.Ok());
 
   proxy.HandleH4HciFromController(std::move(h4_packet));
+  RunDispatcher();
+  return OkStatus();
+}
+
+static constexpr size_t NumberOfCompletedPacketsSize(size_t num_connections) {
+  return emboss::NumberOfCompletedPacketsEvent::MinSizeInBytes() +
+         num_connections *
+             emboss::NumberOfCompletedPacketsEventData::IntrinsicSizeInBytes();
+}
+
+Status ProxyHostTest::SendNumberOfCompletedPackets(
+    ProxyHost& proxy,
+    std::initializer_list<std::pair<uint16_t, uint16_t>>
+        packets_per_connection) {
+  constexpr const size_t kMaxConnections = 5;
+  PW_CHECK_UINT_LE(packets_per_connection.size(), kMaxConnections);
+
+  std::array<uint8_t, NumberOfCompletedPacketsSize(kMaxConnections)> hci_arr;
+  hci_arr.fill(0);
+  span<uint8_t> hci_span(
+      hci_arr.data(),
+      NumberOfCompletedPacketsSize(packets_per_connection.size()));
+  H4PacketWithHci nocp_event{emboss::H4PacketType::EVENT, hci_span};
+  PW_TRY_ASSIGN(auto view,
+                MakeEmbossWriter<emboss::NumberOfCompletedPacketsEventWriter>(
+                    nocp_event.GetHciSpan()));
+  view.header().event_code().Write(
+      emboss::EventCode::NUMBER_OF_COMPLETED_PACKETS);
+  view.header().parameter_total_size().Write(
+      nocp_event.GetHciSpan().size() -
+      emboss::EventHeader::IntrinsicSizeInBytes());
+  view.num_handles().Write(packets_per_connection.size());
+
+  size_t i = 0;
+  for (const auto& [handle, num_packets] : packets_per_connection) {
+    view.nocp_data()[i].connection_handle().Write(handle);
+    view.nocp_data()[i].num_completed_packets().Write(num_packets);
+    ++i;
+  }
+
+  proxy.HandleH4HciFromController(std::move(nocp_event));
+  RunDispatcher();
   return OkStatus();
 }
 
 // Send a Connection_Complete event to `proxy` indicating the provided
 // `handle` has disconnected.
-Status SendConnectionCompleteEvent(ProxyHost& proxy,
-                                   uint16_t handle,
-                                   emboss::StatusCode status) {
+Status ProxyHostTest::SendConnectionCompleteEvent(ProxyHost& proxy,
+                                                  uint16_t handle,
+                                                  emboss::StatusCode status) {
   std::array<uint8_t, emboss::ConnectionCompleteEvent::IntrinsicSizeInBytes()>
       hci_arr{};
   H4PacketWithHci h4_packet{emboss::H4PacketType::EVENT, hci_arr};
@@ -217,14 +263,15 @@ Status SendConnectionCompleteEvent(ProxyHost& proxy,
   view.status().Write(status);
   view.connection_handle().Write(handle);
   proxy.HandleH4HciFromController(std::move(h4_packet));
+  RunDispatcher();
   return OkStatus();
 }
 
 // Send a LE_Connection_Complete event to `proxy` indicating the provided
 // `handle` has disconnected.
-Status SendLeConnectionCompleteEvent(ProxyHost& proxy,
-                                     uint16_t handle,
-                                     emboss::StatusCode status) {
+Status ProxyHostTest::SendLeConnectionCompleteEvent(ProxyHost& proxy,
+                                                    uint16_t handle,
+                                                    emboss::StatusCode status) {
   std::array<uint8_t,
              emboss::LEConnectionCompleteSubevent::IntrinsicSizeInBytes()>
       hci_arr_dc{};
@@ -241,15 +288,16 @@ Status SendLeConnectionCompleteEvent(ProxyHost& proxy,
   view.connection_interval().Write(0x0006);
   view.supervision_timeout().Write(0x000A);
   proxy.HandleH4HciFromController(std::move(dc_event));
+  RunDispatcher();
   return OkStatus();
 }
 
 // Send a Disconnection_Complete event to `proxy` indicating the provided
 // `handle` has disconnected.
-Status SendDisconnectionCompleteEvent(ProxyHost& proxy,
-                                      uint16_t handle,
-                                      Direction direction,
-                                      bool successful) {
+Status ProxyHostTest::SendDisconnectionCompleteEvent(ProxyHost& proxy,
+                                                     uint16_t handle,
+                                                     Direction direction,
+                                                     bool successful) {
   std::array<uint8_t,
              sizeof(emboss::H4PacketType) +
                  emboss::DisconnectionCompleteEvent::IntrinsicSizeInBytes()>
@@ -275,14 +323,15 @@ Status SendDisconnectionCompleteEvent(ProxyHost& proxy,
   } else {
     return Status::InvalidArgument();
   }
+  RunDispatcher();
   return OkStatus();
 }
 
-Status SendL2capConnectionReq(ProxyHost& proxy,
-                              Direction direction,
-                              uint16_t handle,
-                              uint16_t source_cid,
-                              uint16_t psm) {
+Status ProxyHostTest::SendL2capConnectionReq(ProxyHost& proxy,
+                                             Direction direction,
+                                             uint16_t handle,
+                                             uint16_t source_cid,
+                                             uint16_t psm) {
   // First send CONNECTION_REQ to setup partial connection.
   constexpr size_t kConnectionReqLen =
       emboss::L2capConnectionReq::IntrinsicSizeInBytes();
@@ -315,15 +364,15 @@ Status SendL2capConnectionReq(ProxyHost& proxy,
   } else {
     return Status::InvalidArgument();
   }
-
+  RunDispatcher();
   return OkStatus();
 }
 
-Status SendL2capConfigureReq(ProxyHost& proxy,
-                             Direction direction,
-                             uint16_t handle,
-                             uint16_t destination_cid,
-                             L2capOptions& l2cap_options) {
+Status ProxyHostTest::SendL2capConfigureReq(ProxyHost& proxy,
+                                            Direction direction,
+                                            uint16_t handle,
+                                            uint16_t destination_cid,
+                                            L2capOptions& l2cap_options) {
   size_t kOptionsSize = 0;
   if (l2cap_options.mtu.has_value()) {
     kOptionsSize += emboss::L2capMtuConfigurationOption::IntrinsicSizeInBytes();
@@ -376,15 +425,16 @@ Status SendL2capConfigureReq(ProxyHost& proxy,
                                         cframe.acl.h4_span()};
     proxy.HandleH4HciFromHost(std::move(configure_req_packet));
   }
-
+  RunDispatcher();
   return OkStatus();
 }
 
-Status SendL2capConfigureRsp(ProxyHost& proxy,
-                             Direction direction,
-                             uint16_t handle,
-                             uint16_t local_cid,
-                             emboss::L2capConfigurationResult result) {
+Status ProxyHostTest::SendL2capConfigureRsp(
+    ProxyHost& proxy,
+    Direction direction,
+    uint16_t handle,
+    uint16_t local_cid,
+    emboss::L2capConfigurationResult result) {
   constexpr size_t kConfigureRspLen =
       emboss::L2capConfigureRsp::MinSizeInBytes();
   PW_TRY_ASSIGN(
@@ -415,11 +465,11 @@ Status SendL2capConfigureRsp(ProxyHost& proxy,
                                         cframe.acl.h4_span()};
     proxy.HandleH4HciFromHost(std::move(configure_rsp_packet));
   }
-
+  RunDispatcher();
   return OkStatus();
 }
 
-Status SendL2capConnectionRsp(
+Status ProxyHostTest::SendL2capConnectionRsp(
     ProxyHost& proxy,
     Direction direction,
     uint16_t handle,
@@ -458,16 +508,16 @@ Status SendL2capConnectionRsp(
   } else {
     return Status::InvalidArgument();
   }
-
+  RunDispatcher();
   return OkStatus();
 }
 
-Status SendL2capDisconnectRsp(ProxyHost& proxy,
-                              Direction direction,
-                              AclTransportType transport,
-                              uint16_t handle,
-                              uint16_t source_cid,
-                              uint16_t destination_cid) {
+Status ProxyHostTest::SendL2capDisconnectRsp(ProxyHost& proxy,
+                                             Direction direction,
+                                             AclTransportType transport,
+                                             uint16_t handle,
+                                             uint16_t source_cid,
+                                             uint16_t destination_cid) {
   constexpr size_t kDisconnectionRspLen =
       emboss::L2capDisconnectionRsp::MinSizeInBytes();
   PW_TRY_ASSIGN(
@@ -502,14 +552,15 @@ Status SendL2capDisconnectRsp(ProxyHost& proxy,
   } else {
     return Status::InvalidArgument();
   }
+  RunDispatcher();
   return OkStatus();
 }
 
-void SendL2capBFrame(ProxyHost& proxy,
-                     uint16_t handle,
-                     pw::span<const uint8_t> payload,
-                     size_t pdu_length,
-                     uint16_t channel_id) {
+void ProxyHostTest::SendL2capBFrame(ProxyHost& proxy,
+                                    uint16_t handle,
+                                    pw::span<const uint8_t> payload,
+                                    size_t pdu_length,
+                                    uint16_t channel_id) {
   constexpr size_t kHeadersSize =
       emboss::AclDataFrameHeader::IntrinsicSizeInBytes() +
       emboss::BasicL2capHeader::IntrinsicSizeInBytes();
@@ -538,11 +589,12 @@ void SendL2capBFrame(ProxyHost& proxy,
             h4_packet.GetHciSpan().begin() + kHeadersSize);
 
   proxy.HandleH4HciFromController(std::move(h4_packet));
+  RunDispatcher();
 }
 
-void SendAclContinuingFrag(ProxyHost& proxy,
-                           uint16_t handle,
-                           pw::span<const uint8_t> payload) {
+void ProxyHostTest::SendAclContinuingFrag(ProxyHost& proxy,
+                                          uint16_t handle,
+                                          pw::span<const uint8_t> payload) {
   constexpr size_t kHeadersSize =
       emboss::AclDataFrameHeader::IntrinsicSizeInBytes();
   // No BasicL2capHeader.
@@ -570,7 +622,29 @@ void SendAclContinuingFrag(ProxyHost& proxy,
             h4_packet.GetHciSpan().begin() + kHeadersSize);
 
   proxy.HandleH4HciFromController(std::move(h4_packet));
+  RunDispatcher();
 }
+
+L2capChannel::State GetState(const internal::GenericL2capChannel& channel) {
+  auto* l2cap = channel.InternalForTesting();
+  return l2cap == nullptr ? L2capChannel::State::kClosed : l2cap->state();
+}
+
+#if PW_BLUETOOTH_PROXY_INTERNAL_ALLOCATOR_SIZE == 0
+
+Allocator* ProxyHostTest::GetProxyHostAllocator() {
+  // This is static as it is too large to fit in the test fixture when using the
+  // "light" backend.
+  static allocator::test::AllocatorForTest<16384> alloc;
+  static allocator::SynchronizedAllocator<sync::Mutex> sync{alloc};
+  return &sync;
+}
+
+#else  // PW_BLUETOOTH_PROXY_INTERNAL_ALLOCATOR_SIZE != 0
+
+Allocator* ProxyHostTest::GetProxyHostAllocator() { return nullptr; }
+
+#endif  // PW_BLUETOOTH_PROXY_INTERNAL_ALLOCATOR_SIZE
 
 pw::Result<L2capCoc> ProxyHostTest::BuildCocWithResult(ProxyHost& proxy,
                                                        CocParameters params) {
@@ -631,6 +705,27 @@ GattNotifyChannel ProxyHostTest::BuildGattNotifyChannel(
       BuildGattNotifyChannelWithResult(proxy, std::move(params));
   PW_TEST_EXPECT_OK(channel);
   return std::move(channel.value());
+}
+
+Result<UniquePtr<ChannelProxy>>
+ProxyHostTest::BuildBasicModeChannelProxyWithResult(
+    ProxyHost& proxy, BasicChannelProxyParameters&& params) {
+  return proxy.InterceptBasicModeChannel(
+      params.connection_handle,
+      params.local_channel_id,
+      params.remote_channel_id,
+      params.transport,
+      std::move(params.payload_from_controller_fn),
+      std::move(params.payload_from_host_fn),
+      std::move(params.event_fn));
+}
+
+UniquePtr<ChannelProxy> ProxyHostTest::BuildBasicModeChannelProxy(
+    ProxyHost& proxy, BasicChannelProxyParameters&& params) {
+  Result<UniquePtr<ChannelProxy>> result =
+      BuildBasicModeChannelProxyWithResult(proxy, std::move(params));
+  PW_TEST_EXPECT_OK(result);
+  return std::move(result.value());
 }
 
 }  // namespace pw::bluetooth::proxy

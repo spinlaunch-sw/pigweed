@@ -17,7 +17,7 @@
 #include <utility>
 
 #include "lib/stdcompat/utility.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/task.h"
 #include "pw_async2/try.h"
 #include "pw_compilation_testing/negative_compilation.h"
@@ -31,7 +31,7 @@ namespace {
 using pw::Result;
 using pw::Status;
 using pw::async2::Context;
-using pw::async2::Dispatcher;
+using pw::async2::DispatcherForTest;
 using pw::async2::Pending;
 using pw::async2::Poll;
 using pw::async2::PollResult;
@@ -116,7 +116,7 @@ class TestPacketWriterImpl
     bool old_ready_to_write = ready_to_write_;
     ready_to_write_ = ready;
     if (!old_ready_to_write && ready_to_write_ && !write_waker().IsEmpty()) {
-      std::move(write_waker()).Wake();
+      write_waker().Wake();
     }
   }
   void ClearPackets() { packets_.clear(); }
@@ -165,14 +165,14 @@ class TestPacketReader
     bool was_empty = packet_queue_.empty();
     packet_queue_.push_back(std::move(packet));
     if (was_empty && !read_waker_.IsEmpty()) {
-      std::move(read_waker_).Wake();
+      read_waker_.Wake();
     }
   }
 
   void SimulateEndOfStream() {
     end_of_stream_ = true;
     if (!read_waker_.IsEmpty()) {
-      std::move(read_waker_).Wake();
+      read_waker_.Wake();
     }
   }
 
@@ -260,25 +260,25 @@ TEST(PacketChannel, WriteOnlyChannelProperties) {
 }
 
 TEST(PacketChannel, TestPacketReader_ReadPackets) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   TestPacketReader reader_impl;
   auto& channel = reader_impl.channel();
 
   ReadPacketsTask read_task(channel, 3);
   dispatcher.Post(read_task);
 
-  EXPECT_FALSE(dispatcher.RunUntilStalled().IsReady());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(read_task.ran_to_completion, 0);
   EXPECT_EQ(reader_impl.queue_size(), 0u);
 
   reader_impl.PushPacket(TestPacket(10));
-  EXPECT_FALSE(dispatcher.RunUntilStalled().IsReady());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(read_task.received_packets.size(), 1u);
   EXPECT_EQ(read_task.received_packets[0].value(), 10);
 
   reader_impl.PushPacket(TestPacket(20));
   reader_impl.PushPacket(TestPacket(30));
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsReady());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(read_task.ran_to_completion, 1);
   ASSERT_EQ(read_task.received_packets.size(), 3u);
   EXPECT_EQ(read_task.received_packets[0].value(), 10);
@@ -288,7 +288,7 @@ TEST(PacketChannel, TestPacketReader_ReadPackets) {
 }
 
 TEST(PacketChannel, TestPacketReader_ReadUntilEndOfStream) {
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   TestPacketReader reader_impl;
   auto& channel = reader_impl.channel();
 
@@ -297,11 +297,11 @@ TEST(PacketChannel, TestPacketReader_ReadUntilEndOfStream) {
 
   reader_impl.PushPacket(TestPacket(1));
   reader_impl.PushPacket(TestPacket(2));
-  EXPECT_FALSE(dispatcher.RunUntilStalled().IsReady());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   ASSERT_EQ(read_task.received_packets.size(), 2u);
 
   reader_impl.SimulateEndOfStream();
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsReady());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(read_task.final_status, Status::OutOfRange());
   ASSERT_EQ(read_task.received_packets.size(), 2u);
   EXPECT_EQ(read_task.received_packets[0].value(), 1);
@@ -344,7 +344,7 @@ TEST(PacketChannel, Conversions) {
   TakesPacketReader(rs.channel());
   TakesPacketReader(rs.channel().as<kReadable>());
 #if PW_NC_TEST(CannotConvertReadOnlyToWriter)
-  PW_NC_EXPECT("private");
+  PW_NC_EXPECT("private|inaccessible base");
   TakesPacketWriter(rs.channel());
 #endif  // PW_NC_TEST
 
@@ -354,7 +354,7 @@ TEST(PacketChannel, Conversions) {
   TakesPacketWriter(ws.channel());
   TakesPacketWriter(ws.channel().as<kWritable>());
 #if PW_NC_TEST(CannotConvertWriteOnlyToReader)
-  PW_NC_EXPECT("private");
+  PW_NC_EXPECT("private|inaccessible base");
   TakesPacketReader(ws.channel());
 #endif  // PW_NC_TEST
 }
@@ -398,18 +398,18 @@ TEST(PacketWriter, Write) {
   TestPacketWriterImpl<> writer_impl;
   auto& writer = writer_impl.channel();
 
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
   WriteFivePackets task(writer);
   dispatcher.Post(task);
 
   writer_impl.set_ready_to_write(false);
 
-  EXPECT_FALSE(dispatcher.RunUntilStalled().IsReady());
-  EXPECT_FALSE(dispatcher.RunUntilStalled().IsReady());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   writer_impl.set_ready_to_write(true);
 
-  EXPECT_TRUE(dispatcher.RunUntilStalled().IsReady());
+  dispatcher.RunToCompletion();
   EXPECT_EQ(task.ran_to_completion, 1);
 
   ASSERT_EQ(writer_impl.packets().size(), 5u);
@@ -423,19 +423,19 @@ TEST(PacketWriter, WriteWithFlowControl) {
   TestPacketWriterImpl<> writer_impl;
   auto& writer = writer_impl.channel();
 
-  pw::async2::Dispatcher dispatcher;
+  pw::async2::DispatcherForTest dispatcher;
   WriteFivePackets task(writer);
   dispatcher.Post(task);
 
   ASSERT_EQ(writer_impl.GetAvailableWrites(), pw::channel::kNoFlowControl);
 
   writer.SetAvailableWrites(0);
-  ASSERT_FALSE(dispatcher.RunUntilStalled().IsReady());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   EXPECT_TRUE(writer_impl.packets().empty());
 
   writer.SetAvailableWrites(2);
-  ASSERT_FALSE(dispatcher.RunUntilStalled().IsReady());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   EXPECT_EQ(writer_impl.GetAvailableWrites(), 0u);
   ASSERT_EQ(writer_impl.packets().size(), 2u);
@@ -445,7 +445,7 @@ TEST(PacketWriter, WriteWithFlowControl) {
   }
 
   writer.AcknowledgeWrites(4);
-  ASSERT_TRUE(dispatcher.RunUntilStalled().IsReady());
+  dispatcher.RunToCompletion();
 
   EXPECT_EQ(writer_impl.GetAvailableWrites(), 1u);
   ASSERT_EQ(writer_impl.packets().size(), 5u);
@@ -460,7 +460,7 @@ TEST(PacketWriter, WriteWithFlowControl) {
 PW_NC_EXPECT("PendRead may only be called on readable channels");
 void CallReadOnWriter() {
   TestPacketWriterImpl<> ws;
-  Dispatcher d;
+  DispatcherForTest d;
   Context cx = d.MakeContext(ws.channel(), d);
   ws.channel().PendRead(cx);
 }
@@ -468,7 +468,7 @@ void CallReadOnWriter() {
 PW_NC_EXPECT("PendReadyToWrite may only be called on writable channels");
 void CallWriteOnReader_PendReadyToWrite() {
   ReadOnlyPacketStub rs;
-  Dispatcher d;
+  DispatcherForTest d;
   Context cx = d.MakeContext(rs.channel(), d);
   rs.channel().PendReadyToWrite(cx);
 }
@@ -476,7 +476,7 @@ void CallWriteOnReader_PendReadyToWrite() {
 PW_NC_EXPECT("PendWrite may only be called on writable channels");
 void CallWriteOnReader_PendWrite() {
   ReadOnlyPacketStub rs;
-  Dispatcher d;
+  DispatcherForTest d;
   Context cx = d.MakeContext(rs.channel(), d);
   rs.channel().PendWrite(cx);
 }
@@ -501,9 +501,8 @@ bool Illegal(
 }
 #elif PW_NC_TEST(PacketChannelImplInvalidOrdering)
 PW_NC_EXPECT("Properties must be specified in the following order");
-class BadChannel
-    : public pw::channel::PacketChannelImpl<TestPacket, kWritable, kReadable> {
-};
+class BadChannel : public pw::channel::internal::
+                       PacketChannelImpl<TestPacket, kWritable, kReadable> {};
 #elif PW_NC_TEST(PacketChannelNoReadOrWrite)
 PW_NC_EXPECT("At least one of kReadable or kWritable must be provided");
 bool Illegal(pw::channel::PacketChannel<TestPacket>& foo) {
@@ -511,7 +510,8 @@ bool Illegal(pw::channel::PacketChannel<TestPacket>& foo) {
 }
 #elif PW_NC_TEST(PacketChannelImplNoReadOrWrite)
 PW_NC_EXPECT("At least one of kReadable or kWritable must be provided");
-class BadChannel : public pw::channel::PacketChannelImpl<TestPacket> {};
+class BadChannel : public pw::channel::internal::PacketChannelImpl<TestPacket> {
+};
 #elif PW_NC_TEST(PacketChannelDuplicateProperties)
 PW_NC_EXPECT("without duplicates");
 bool Illegal(

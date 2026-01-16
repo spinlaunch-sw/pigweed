@@ -8,7 +8,7 @@
     "type": "git",
     "url": "https://pigweed.googlesource.com/pigweed/pigweed"
   },
-  "version": "1.9.12",
+  "version": "1.10.1",
   "license": "Apache-2.0",
   "engines": {
     "vscode": "^1.75.0"
@@ -183,11 +183,6 @@
           "type": "boolean",
           "default": "false",
           "description": "Disable bazel interceptor that updates code intelligence automatically"
-        },
-        "pigweed.experimentalCompileCommands": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use aspect-based compile commands generator (experimental)"
         },
         "pigweed.disableBazeliskCheck": {
           "type": "boolean",

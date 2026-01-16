@@ -15,6 +15,7 @@
 import("//build_overrides/pigweed.gni")
 
 import("$dir_pigweed/build_overrides/pi_pico.gni")
+
 import("$dir_pw_async2/backend.gni")
 import("$dir_pw_build/target_types.gni")
 import("$dir_pw_thread/backend.gni")
@@ -30,8 +31,8 @@ pw_source_set("pw_channel") {
   public = [ "public/pw_channel/channel.h" ]
   public_deps = [
     ":properties",
-    "$dir_pw_async2:dispatcher",
     "$dir_pw_async2:poll",
+    "$dir_pw_async2:pw_async2",
     "$dir_pw_multibuf:allocator",
     "$dir_pw_multibuf:allocator_async",
     "$dir_pw_toolchain:sibling_cast",
@@ -50,7 +51,7 @@ pw_source_set("packet_channel") {
   public = [ "public/pw_channel/packet_channel.h" ]
   public_deps = [
     ":pw_channel",
-    "$dir_pw_async2:dispatcher",
+    "$dir_pw_async2:pw_async2",
     "$pw_external_fuchsia:stdcompat",
     dir_pw_result,
   ]
@@ -81,11 +82,13 @@ pw_test("forwarding_channel_test") {
   deps = [
     ":forwarding_channel",
     "$dir_pw_allocator:testing",
+    "$dir_pw_async2:testing",
     "$dir_pw_multibuf:header_chunk_region_tracker",
+    "$dir_pw_multibuf:simple_allocator",
     "$dir_pw_multibuf:simple_allocator",
     dir_pw_preprocessor,
   ]
-  enable_if = pw_async2_DISPATCHER_BACKEND != ""
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND != ""
 }
 
 pw_source_set("loopback_channel") {
@@ -106,7 +109,7 @@ pw_test("loopback_channel_test") {
     "$dir_pw_multibuf:allocator_async",
     "$dir_pw_multibuf:testing",
   ]
-  enable_if = pw_async2_DISPATCHER_BACKEND != ""
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND != ""
 }
 
 pw_source_set("epoll_channel") {
@@ -115,6 +118,7 @@ pw_source_set("epoll_channel") {
   sources = [ "epoll_channel.cc" ]
   public_deps = [
     ":pw_channel",
+    "$dir_pw_async2:epoll_dispatcher",
     "$dir_pw_multibuf:allocator",
     "$dir_pw_multibuf:allocator_async",
     "$dir_pw_sync:mutex",
@@ -133,8 +137,8 @@ pw_test("epoll_channel_test") {
     "$dir_pw_thread:thread",
     "$dir_pw_thread_stl:thread",
   ]
-  enable_if =
-      pw_async2_DISPATCHER_BACKEND == "$dir_pw_async2_epoll:dispatcher_backend"
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND ==
+              "$dir_pw_async2:epoll_dispatcher_for_test"
 }
 
 if (pw_build_EXECUTABLE_TARGET_TYPE == "pico_executable") {
@@ -174,6 +178,7 @@ pw_test("stream_channel_test") {
   deps = [
     ":stream_channel",
     "$dir_pw_async2:pend_func_task",
+    "$dir_pw_async2:testing",
     "$dir_pw_multibuf:allocator_async",
     "$dir_pw_multibuf:testing",
     "$dir_pw_stream:mpsc_stream",
@@ -184,8 +189,9 @@ pw_test("stream_channel_test") {
     "$dir_pw_unit_test",
     dir_pw_stream,
   ]
-  enable_if = host_os != "win" && pw_async2_DISPATCHER_BACKEND != "" &&
-              pw_thread_THREAD_BACKEND != ""
+  enable_if = host_os != "win" && pw_async2_DISPATCHER_FOR_TEST_BACKEND != "" &&
+              pw_thread_THREAD_BACKEND != "" &&
+              pw_thread_TEST_THREAD_CONTEXT_BACKEND != ""
 }
 
 pw_test_group("tests") {
@@ -206,10 +212,11 @@ pw_test("channel_test") {
   deps = [
     ":pw_channel",
     "$dir_pw_allocator:testing",
+    "$dir_pw_async2:testing",
     "$dir_pw_multibuf:allocator_async",
     "$dir_pw_multibuf:simple_allocator",
   ]
-  enable_if = pw_async2_DISPATCHER_BACKEND != ""
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND != ""
   negative_compilation_tests = true
 }
 
@@ -217,13 +224,13 @@ pw_test("packet_channel_test") {
   sources = [ "packet_channel_test.cc" ]
   deps = [
     ":packet_channel",
-    "$dir_pw_async2:dispatcher",
     "$dir_pw_async2:poll",
+    "$dir_pw_async2:testing",
     "$dir_pw_containers",
     "$dir_pw_unit_test",
     "$pw_external_fuchsia:stdcompat",
   ]
-  enable_if = pw_async2_DISPATCHER_BACKEND != ""
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND != ""
   negative_compilation_tests = true
 }
 
@@ -233,8 +240,8 @@ pw_source_set("test_packet_channel") {
   public_deps = [
     ":packet_channel",
     "$dir_pw_allocator:allocator",
-    "$dir_pw_async2:dispatcher",
     "$dir_pw_async2:poll",
+    "$dir_pw_async2:pw_async2",
     "$dir_pw_containers:dynamic_deque",
     "$dir_pw_containers:dynamic_vector",
     dir_pw_assert,
@@ -248,12 +255,12 @@ pw_test("test_packet_channel_test") {
   deps = [
     ":test_packet_channel",
     "$dir_pw_allocator:testing",
-    "$dir_pw_async2:dispatcher",
     "$dir_pw_async2:pend_func_task",
     "$dir_pw_async2:poll",
+    "$dir_pw_async2:testing",
     dir_pw_result,
   ]
-  enable_if = pw_async2_DISPATCHER_BACKEND != ""
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND != ""
 }
 
 pw_source_set("packet_proxy") {
@@ -267,12 +274,13 @@ pw_source_set("packet_proxy") {
   public_deps = [
     ":packet_channel",
     "$dir_pw_allocator:chunk_pool",
-    "$dir_pw_async2:dispatcher",
     "$dir_pw_async2:poll",
+    "$dir_pw_async2:pw_async2",
     "$dir_pw_async2:waker_queue",
     "$dir_pw_containers:inline_async_queue",
     dir_pw_allocator,
   ]
+  cflags = [ "-Wno-deprecated-declarations" ]
 }
 
 pw_test("packet_proxy_test") {
@@ -282,6 +290,8 @@ pw_test("packet_proxy_test") {
     ":test_packet_channel",
     "$dir_pw_allocator:testing",
     "$dir_pw_async2:pend_func_task",
+    "$dir_pw_async2:testing",
   ]
-  enable_if = pw_async2_DISPATCHER_BACKEND != ""
+  enable_if = pw_async2_DISPATCHER_FOR_TEST_BACKEND != ""
+  cflags = [ "-Wno-deprecated-declarations" ]
 }

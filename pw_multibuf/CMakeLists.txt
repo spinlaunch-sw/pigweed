@@ -14,6 +14,7 @@
 
 include($ENV{PW_ROOT}/pw_build/pigweed.cmake)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf INTERFACE
   HEADERS
     public/pw_multibuf/multibuf.h
@@ -23,9 +24,13 @@ pw_add_library(pw_multibuf INTERFACE
     pw_multibuf.chunk
     pw_multibuf.multibuf_v1
 )
+# LINT.ThenChange(Android.bp, BUILD.bazel, BUILD.gn)
+
+### Module configuration
 
 pw_add_module_config(pw_multibuf_CONFIG)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.config INTERFACE
   HEADERS
     public/pw_multibuf/config.h
@@ -39,7 +44,11 @@ pw_add_library(pw_multibuf.v1_config INTERFACE
   PUBLIC_DEFINES
     PW_MULTIBUF_VERSION=PW_MULTIBUF_V1
 )
+# LINT.ThenChange(BUILD.bazel, BUILD.gn)
 
+### Libraries and tests
+
+# LINT.IfChange
 pw_add_library(pw_multibuf.chunk STATIC
   HEADERS
     public/pw_multibuf/chunk.h
@@ -57,7 +66,9 @@ pw_add_library(pw_multibuf.chunk STATIC
   SOURCES
     chunk.cc
 )
+# LINT.ThenChange(Android.bp, BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.header_chunk_region_tracker INTERFACE
   HEADERS
     public/pw_multibuf/header_chunk_region_tracker.h
@@ -120,7 +131,9 @@ pw_add_test(pw_multibuf.single_chunk_region_tracker_test
     modules
     pw_multibuf
 )
+# LINT.ThenChange(BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.multibuf_v1 STATIC
   HEADERS
     public/pw_multibuf/multibuf.h
@@ -133,7 +146,9 @@ pw_add_library(pw_multibuf.multibuf_v1 STATIC
   SOURCES
     multibuf_v1.cc
 )
+# LINT.ThenChange(Android.bp, BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_test(pw_multibuf.multibuf_v1_test
   SOURCES
     multibuf_v1_test.cc
@@ -146,7 +161,9 @@ pw_add_test(pw_multibuf.multibuf_v1_test
     modules
     pw_multibuf
 )
+# LINT.ThenChange(BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.allocator STATIC
   HEADERS
     public/pw_multibuf/allocator.h
@@ -161,14 +178,16 @@ pw_add_library(pw_multibuf.allocator STATIC
   SOURCES
     allocator.cc
 )
+# LINT.ThenChange(Android.bp, BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.allocator_async STATIC
   HEADERS
     public/pw_multibuf/allocator_async.h
   PUBLIC_INCLUDES
     public
   PUBLIC_DEPS
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
     pw_multibuf.allocator
     pw_multibuf.config
@@ -181,8 +200,9 @@ pw_add_test(pw_multibuf.allocator_test
   SOURCES
     allocator_test.cc
   PRIVATE_DEPS
-    pw_async2.dispatcher
+    pw_async2
     pw_async2.poll
+    pw_async2.testing
     pw_multibuf.allocator
     pw_multibuf.allocator_async
     pw_multibuf.v1_config
@@ -190,7 +210,9 @@ pw_add_test(pw_multibuf.allocator_test
     modules
     pw_multibuf
 )
+# LINT.ThenChange(BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.simple_allocator STATIC
   HEADERS
     public/pw_multibuf/simple_allocator.h
@@ -205,7 +227,9 @@ pw_add_library(pw_multibuf.simple_allocator STATIC
   SOURCES
     simple_allocator.cc
 )
+# LINT.ThenChange(Android.bp, BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_test(pw_multibuf.simple_allocator_test
   SOURCES
     simple_allocator_test.cc
@@ -302,23 +326,18 @@ pw_add_library(pw_multibuf._internal_test_utils INTERFACE
 ## MultiBuf v2
 
 pw_add_library(pw_multibuf.v2_config INTERFACE
-  # LINT.IfChange
   PUBLIC_DEFINES
     PW_MULTIBUF_VERSION=PW_MULTIBUF_V2
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
 
 pw_add_library(pw_multibuf.properties INTERFACE
-  # LINT.IfChange
   HEADERS
     public/pw_multibuf/properties.h
   PUBLIC_INCLUDES
     public
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
 
 pw_add_library(pw_multibuf._iterators INTERFACE
-  # LINT.IfChange
   HEADERS
     public/pw_multibuf/chunks.h
     public/pw_multibuf/internal/byte_iterator.h
@@ -327,15 +346,14 @@ pw_add_library(pw_multibuf._iterators INTERFACE
   PUBLIC_INCLUDES
     public
   PUBLIC_DEPS
+    pw_allocator
     pw_assert.assert
     pw_bytes
     pw_containers.dynamic_deque
     pw_preprocessor
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
 
 pw_add_test(pw_multibuf.chunk_iterator_test
-  # LINT.IfChange
   SOURCES
     chunk_iterator_test.cc
   PRIVATE_DEPS
@@ -344,11 +362,9 @@ pw_add_test(pw_multibuf.chunk_iterator_test
   GROUPS
     modules
     pw_multibuf
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
 
 pw_add_test(pw_multibuf.byte_iterator_test
-  # LINT.IfChange
   SOURCES
     byte_iterator_test.cc
   PRIVATE_DEPS
@@ -357,11 +373,9 @@ pw_add_test(pw_multibuf.byte_iterator_test
   GROUPS
     modules
     pw_multibuf
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
 
 pw_add_library(pw_multibuf.iterator_testing INTERFACE
-  # LINT.IfChange
   HEADERS
     public/pw_multibuf/internal/iterator_testing.h
   PUBLIC_INCLUDES
@@ -370,11 +384,11 @@ pw_add_library(pw_multibuf.iterator_testing INTERFACE
     pw_allocator.bump_allocator
     pw_multibuf._iterators
     pw_unit_test
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
+# LINT.ThenChange(BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_library(pw_multibuf.multibuf_v2 STATIC
-  # LINT.IfChange
   HEADERS
     public/pw_multibuf/multibuf_v2.h
     public/pw_multibuf/observer.h
@@ -384,6 +398,7 @@ pw_add_library(pw_multibuf.multibuf_v2 STATIC
     pw_allocator
     pw_allocator.null_allocator
     pw_bytes
+    pw_containers.algorithm
     pw_containers.dynamic_deque
     pw_multibuf._iterators
     pw_multibuf.properties
@@ -391,11 +406,11 @@ pw_add_library(pw_multibuf.multibuf_v2 STATIC
     generic_multibuf.cc
   PRIVATE_DEPS
     pw_assert.check
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
+# LINT.ThenChange(Android.bp, BUILD.bazel, BUILD.gn)
 
+# LINT.IfChange
 pw_add_test(pw_multibuf.multibuf_v2_test
-  # LINT.IfChange
   SOURCES
     multibuf_v2_test.cc
   PRIVATE_DEPS
@@ -412,5 +427,5 @@ pw_add_test(pw_multibuf.multibuf_v2_test
   GROUPS
     modules
     pw_multibuf
-  # LINT.ThenChange(BUILD.bazel, BUILD.gn)
 )
+# LINT.ThenChange(BUILD.bazel, BUILD.gn)

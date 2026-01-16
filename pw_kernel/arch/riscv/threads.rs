@@ -17,7 +17,7 @@ use core::mem;
 use core::ptr::NonNull;
 
 use kernel::Arch;
-use kernel::interrupt::InterruptController;
+use kernel::interrupt_controller::InterruptController;
 use kernel::scheduler::thread::Stack;
 use kernel::scheduler::{self, SchedulerState, ThreadLocalState};
 use kernel::sync::spinlock::SpinLockGuard;
@@ -109,7 +109,11 @@ impl Arch for super::Arch {
     type BareSpinLock = BareSpinLock;
     type Clock = super::timer::Clock;
     #[cfg(not(feature = "disable_interrupts_atomic"))]
+    type AtomicBool = core::sync::atomic::AtomicBool;
+    #[cfg(not(feature = "disable_interrupts_atomic"))]
     type AtomicUsize = core::sync::atomic::AtomicUsize;
+    #[cfg(feature = "disable_interrupts_atomic")]
+    type AtomicBool = crate::disable_interrupts_atomic::AtomicBool;
     #[cfg(feature = "disable_interrupts_atomic")]
     type AtomicUsize = crate::disable_interrupts_atomic::AtomicUsize;
     type SyscallArgs<'a> = crate::exceptions::RiscVSyscallArgs<'a>;
@@ -210,7 +214,7 @@ impl kernel::scheduler::thread::ThreadState for ArchThreadState {
     };
 
     #[inline(never)]
-    fn initialize_kernel_frame(
+    unsafe fn initialize_kernel_frame(
         &mut self,
         kernel_stack: Stack,
         memory_config: *const MemoryConfig,
@@ -228,7 +232,7 @@ impl kernel::scheduler::thread::ThreadState for ArchThreadState {
     }
 
     #[cfg(feature = "user_space")]
-    fn initialize_user_frame(
+    unsafe fn initialize_user_frame(
         &mut self,
         kernel_stack: Stack,
         memory_config: *const MemoryConfig,
@@ -245,7 +249,7 @@ impl kernel::scheduler::thread::ThreadState for ArchThreadState {
             kernel_stack,
             asm_user_trampoline,
             mstatus,
-            initial_sp as usize,
+            initial_sp,
             (initial_pc, args.0, args.1, args.2),
         );
 

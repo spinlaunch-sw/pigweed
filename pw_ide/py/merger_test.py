@@ -141,6 +141,31 @@ class MergerTest(fake_filesystem_unittest.TestCase):
         self.assertEqual(data[0]['file'], 'a.cc')
         self.assertEqual(data[0]['directory'], str(self.workspace_root))
 
+    def test_writes_last_generation_time(self):
+        """Test that the last generation time file is written."""
+        _create_fragment(
+            self.fs,
+            self.output_path,
+            'target1',
+            'k8-fastbuild',
+            [
+                {
+                    'file': 'a.cc',
+                    'directory': '__WORKSPACE_ROOT__',
+                    'arguments': ['c', 'd'],
+                }
+            ],
+        )
+        self.assertEqual(merger.main(), 0)
+        timestamp_path = (
+            self.workspace_root
+            / '.compile_commands'
+            / 'pw_lastGenerationTime.txt'
+        )
+        self.assertTrue(timestamp_path.exists())
+        content = timestamp_path.read_text(encoding='utf-8')
+        self.assertTrue(content.isdigit())
+
     def test_merge_multiple_platforms(self):
         """Test that multiple platforms are correctly separated."""
         _create_fragment(
@@ -308,6 +333,45 @@ class MergerTest(fake_filesystem_unittest.TestCase):
         ]
         self.assertEqual(data[0]['file'], expected_file)
         self.assertEqual(data[0]['arguments'], expected_args)
+
+    def test_external_repo_symlinks(self):
+        """Test that symlinks in external repos are resolved."""
+        real_repo_path = self.workspace_root / 'real_repo'
+        self.fs.create_dir(real_repo_path)
+        real_file_path = real_repo_path / 'a.cc'
+        self.fs.create_file(real_file_path)
+
+        # Create a symlink in the external directory pointing to the real repo
+        external_repo_path = self.output_base / 'external/my_repo'
+        self.fs.create_dir(self.output_base / 'external')
+        self.fs.create_symlink(external_repo_path, real_repo_path)
+
+        _create_fragment(
+            self.fs,
+            self.output_path,
+            't1',
+            'k8-fastbuild',
+            [
+                {
+                    'file': 'external/my_repo/a.cc',
+                    'directory': '__WORKSPACE_ROOT__',
+                    'arguments': [],
+                }
+            ],
+        )
+        self.assertEqual(merger.main(), 0)
+        merged_path = (
+            self.workspace_root
+            / '.compile_commands'
+            / 'k8-fastbuild'
+            / 'compile_commands.json'
+        )
+        with open(merged_path, 'r') as f:
+            data = json.load(f)
+
+        # The expected path should be the real path, not the symlink path
+        expected_file = str(real_file_path)
+        self.assertEqual(data[0]['file'], expected_file)
 
     def test_empty_fragment_file(self):
         """Test that an empty fragment file doesn't cause issues."""
@@ -541,6 +605,86 @@ class MergerTest(fake_filesystem_unittest.TestCase):
         self.assertNotEqual(data, [{"test": "entry"}])
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]['file'], 'a.cc')
+
+    def test_merge_conflict_with_outputs_key(self):
+        """Tests that a conflict is detected for the same file and output."""
+        _create_fragment(
+            self.fs,
+            self.output_path,
+            'target1',
+            'k8-fastbuild',
+            [
+                {
+                    'file': 'a.cc',
+                    'directory': '__WORKSPACE_ROOT__',
+                    'arguments': ['c', '-DVERSION=1'],
+                    'outputs': ['a.o'],
+                }
+            ],
+        )
+        _create_fragment(
+            self.fs,
+            self.output_path,
+            'target2',
+            'k8-fastbuild',
+            [
+                {
+                    'file': 'a.cc',
+                    'directory': '__WORKSPACE_ROOT__',
+                    'arguments': ['c', '-DVERSION=2'],
+                    'outputs': ['a.o'],
+                }
+            ],
+        )
+
+        with io.StringIO() as buf, redirect_stderr(buf):
+            self.assertEqual(merger.main(), 1)
+            self.assertIn('Conflict for file a.cc', buf.getvalue())
+            self.assertIn('-DVERSION=1', buf.getvalue())
+            self.assertIn('-DVERSION=2', buf.getvalue())
+
+    def test_no_conflict_with_different_outputs_key(self):
+        """Tests no conflict is detected for the same file, different output."""
+        _create_fragment(
+            self.fs,
+            self.output_path,
+            'target1',
+            'k8-fastbuild',
+            [
+                {
+                    'file': 'a.cc',
+                    'directory': '__WORKSPACE_ROOT__',
+                    'arguments': ['c', '-DVERSION=1'],
+                    'outputs': ['a.v1.o'],
+                }
+            ],
+        )
+        _create_fragment(
+            self.fs,
+            self.output_path,
+            'target2',
+            'k8-fastbuild',
+            [
+                {
+                    'file': 'a.cc',
+                    'directory': '__WORKSPACE_ROOT__',
+                    'arguments': ['c', '-DVERSION=2'],
+                    'outputs': ['a.v2.o'],
+                }
+            ],
+        )
+
+        self.assertEqual(merger.main(), 0)
+        merged_path = (
+            self.workspace_root
+            / '.compile_commands'
+            / 'k8-fastbuild'
+            / 'compile_commands.json'
+        )
+        self.assertTrue(merged_path.exists())
+        with open(merged_path, 'r') as f:
+            data = json.load(f)
+        self.assertEqual(len(data), 2)
 
 
 if __name__ == '__main__':

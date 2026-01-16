@@ -14,7 +14,7 @@
 
 #include "pw_async2/future.h"
 
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/try.h"
 #include "pw_compilation_testing/negative_compilation.h"
@@ -22,423 +22,473 @@
 
 namespace {
 
-using pw::async2::experimental::ListableFutureWithWaker;
-using pw::async2::experimental::ListFutureProvider;
-using pw::async2::experimental::SingleFutureProvider;
+using pw::async2::Context;
+using pw::async2::DispatcherForTest;
+using pw::async2::Future;
+using pw::async2::PendFuncTask;
+using pw::async2::Pending;
+using pw::async2::Poll;
+using pw::async2::Ready;
 
-class SimpleIntFuture;
+static_assert(!Future<int>);
+static_assert(!Future<pw::async2::FutureCore>);
 
-class SimpleAsyncInt {
+class FakeFuture {
  public:
-  SimpleIntFuture Get();
-  std::optional<SimpleIntFuture> GetSingle();
+  using value_type = int;
+  Poll<int> Pend(Context& cx);
+  bool is_complete() const;
+};
+static_assert(Future<FakeFuture>);
 
-  void Set(int value) {
-    {
-      std::lock_guard lock(list_provider_.lock());
-      PW_ASSERT(!value_.has_value());
-      value_ = value;
-    }
-    ResolveAllFutures();
-  }
+class MissingValueType {
+ public:
+  Poll<int> Pend(Context& cx);
+  bool is_complete() const;
+};
+static_assert(!Future<MissingValueType>);
 
-  void ResolveAllFutures();
+class MissingPend {
+ public:
+  using value_type = int;
+  bool is_complete() const;
+};
+static_assert(!Future<MissingPend>);
+
+class ExtraArgIsComplete {
+ public:
+  using value_type = int;
+  Poll<int> Pend(Context& cx);
+  bool is_complete(bool maybe_not = false) const;
+};
+static_assert(!Future<ExtraArgIsComplete>);
+
+class NonConstIsComplete {
+ public:
+  using value_type = int;
+  Poll<int> Pend(Context& cx);
+  bool is_complete();
+};
+static_assert(!Future<NonConstIsComplete>);
+
+class MissingIsComplete {
+ public:
+  using value_type = int;
+  Poll<int> Pend(Context& cx);
+};
+static_assert(!Future<MissingIsComplete>);
+
+class WrongPendSignature {
+ public:
+  using value_type = int;
+  Poll<int> Pend();  // Missing Context&
+  bool is_complete() const;
+};
+static_assert(!Future<WrongPendSignature>);
+
+class WrongPendReturnType {
+ public:
+  using value_type = int;
+  void Pend(Context& cx);
+  bool is_complete() const;
+};
+static_assert(!Future<WrongPendReturnType>);
+
+class ExtraArgPend {
+ public:
+  using value_type = int;
+  Poll<int> Pend(Context& cx, int extra = 0);
+  bool is_complete() const;
+};
+static_assert(!Future<ExtraArgPend>);
+
+#if PW_NC_TEST(FutureWaitReasonMustBeProvided)
+PW_NC_EXPECT("kWaitReason");
+
+class BadFuture {
+ public:
+  Poll<int> Pend(Context& cx) { return core_.DoPend(*this, cx); }
 
  private:
-  friend class SimpleIntFuture;
+  friend class pw::async2::FutureCore;
 
-  // This object stores both a list provider and a single provider for testing
-  // purposes. In actual usage, only one of these would be needed, depending on
-  // how many consumers the operation allows.
-  ListFutureProvider<SimpleIntFuture> list_provider_;
-  SingleFutureProvider<SimpleIntFuture> single_provider_;
+  Poll<int> DoPend(Context&) { return 5; }
+
+  pw::async2::FutureCore core_;
+};
+
+[[maybe_unused]] void ShouldAssert() {
+  BadFuture future;
+  PendFuncTask task([&](Context& cx) { return future.Pend(cx).Readiness(); });
+}
+#endif  // PW_NC_TEST
+
+class TestAsyncInt;
+
+class TestIntFuture {
+ public:
+  using value_type = int;
+
+  TestIntFuture() = default;
+
+  TestIntFuture(TestIntFuture&& other) noexcept
+      : core_(std::move(other.core_)),
+        async_int_(std::exchange(other.async_int_, nullptr)) {}
+
+  TestIntFuture& operator=(TestIntFuture&& other) noexcept {
+    if (this != &other) {
+      core_ = std::move(other.core_);
+      async_int_ = std::exchange(other.async_int_, nullptr);
+    }
+    return *this;
+  }
+
+  Poll<int> Pend(Context& cx) { return core_.DoPend(*this, cx); }
+
+  // Exposed for testing.
+  const pw::async2::FutureCore& core() const { return core_; }
+
+  [[nodiscard]] bool is_complete() const { return core_.is_complete(); }
+
+ private:
+  friend class TestAsyncInt;
+  friend class pw::async2::FutureCore;
+
+  static constexpr const char kWaitReason[] = "TestIntFuture";
+
+  TestIntFuture(TestAsyncInt& async_int);
+
+  TestIntFuture(TestAsyncInt& async_int,
+                pw::async2::FutureState::ReadyForCompletion)
+      : core_(pw::async2::FutureState::kReadyForCompletion),
+        async_int_(&async_int) {}
+
+  Poll<int> DoPend(Context&);
+
+  pw::async2::FutureCore core_;
+  TestAsyncInt* async_int_;
+};
+
+class TestAsyncInt {
+ public:
+  TestIntFuture Get() { return TestIntFuture(*this); }
+
+  TestIntFuture SetAndGet(int value) {
+    PW_ASSERT(!value_.has_value());
+    value_ = value;
+    return TestIntFuture(*this, pw::async2::FutureState::kReadyForCompletion);
+  }
+
+  void Set(int value) {
+    PW_ASSERT(!value_.has_value());
+    value_ = value;
+    list_.ResolveAll();
+  }
+
+  void WakeAllFuturesWithoutSettingValue() {
+    TestIntFuture* future;
+    while ((future = list_.PopIfAvailable()) != nullptr) {
+      future->core_.Wake();
+    }
+  }
+
+ private:
+  friend class TestIntFuture;
+
+  pw::async2::FutureList<&TestIntFuture::core_> list_;
   std::optional<int> value_;
 };
 
-class SimpleIntFuture : public ListableFutureWithWaker<SimpleIntFuture, int> {
- public:
-  static constexpr const char kWaitReason[] = "SimpleIntFuture";
-
-  SimpleIntFuture(SimpleIntFuture&& other) noexcept
-      : ListableFutureWithWaker(kMovedFrom),
-        async_int_(std::exchange(other.async_int_, nullptr)) {
-    ListableFutureWithWaker::MoveFrom(other);
-  }
-
-  SimpleIntFuture& operator=(SimpleIntFuture&& other) noexcept {
-    async_int_ = std::exchange(other.async_int_, nullptr);
-    ListableFutureWithWaker::MoveFrom(other);
-    return *this;
-  }
-
-  pw::async2::Poll<int> DoPend(pw::async2::Context&) {
-    PW_ASSERT(async_int_ != nullptr);
-    std::lock_guard guard(lock());
-
-    if (!async_int_->value_.has_value()) {
-      return pw::async2::Pending();
-    }
-
-    return async_int_->value_.value();
-  }
-
- private:
-  friend class SimpleAsyncInt;
-  friend class ListableFutureWithWaker<SimpleIntFuture, int>;
-
-  SimpleIntFuture(SimpleAsyncInt& async_int,
-                  ListFutureProvider<SimpleIntFuture>& provider)
-      : ListableFutureWithWaker(provider), async_int_(&async_int) {}
-
-  SimpleIntFuture(SimpleAsyncInt& async_int,
-                  SingleFutureProvider<SimpleIntFuture>& provider)
-      : ListableFutureWithWaker(provider), async_int_(&async_int) {}
-
-  SimpleAsyncInt* async_int_;
-};
-
-SimpleIntFuture SimpleAsyncInt::Get() {
-  return SimpleIntFuture(*this, list_provider_);
+TestIntFuture::TestIntFuture(TestAsyncInt& async_int)
+    : core_(pw::async2::FutureState::kPending), async_int_(&async_int) {
+  async_int_->list_.Push(core_);
 }
 
-std::optional<SimpleIntFuture> SimpleAsyncInt::GetSingle() {
-  if (!single_provider_.has_future()) {
-    return SimpleIntFuture(*this, single_provider_);
+Poll<int> TestIntFuture::DoPend(Context&) {
+  PW_ASSERT(async_int_ != nullptr);
+  if (async_int_->value_.has_value()) {
+    return Ready(*async_int_->value_);
   }
-  return std::nullopt;
+  if (!core_.in_list()) {
+    async_int_->list_.Push(core_);
+  }
+  return Pending();
 }
 
-void SimpleAsyncInt::ResolveAllFutures() {
-  while (!list_provider_.empty()) {
-    SimpleIntFuture& future = list_provider_.Pop();
-    future.Wake();
-  }
+static_assert(Future<TestIntFuture>);
 
-  if (single_provider_.has_future()) {
-    single_provider_.Take().Wake();
-  }
-}
+TEST(FutureCore, Pend) {
+  DispatcherForTest dispatcher;
+  TestAsyncInt provider;
 
-class NotificationFuture;
+  TestIntFuture future = provider.Get();
+  EXPECT_TRUE(future.core().is_pendable());
+  EXPECT_FALSE(future.core().is_ready());
+  EXPECT_FALSE(future.core().is_complete());
 
-class AsyncNotification {
- public:
-  NotificationFuture Wait();
-
-  void Notify() {
-    {
-      std::lock_guard lock(list_provider_.lock());
-      completed_ = true;
-    }
-    ResolveAllFutures();
-  }
-
-  void ResolveAllFutures();
-
- private:
-  friend class NotificationFuture;
-
-  ListFutureProvider<NotificationFuture> list_provider_;
-  bool completed_ = false;
-};
-
-class NotificationFuture
-    : public ListableFutureWithWaker<NotificationFuture, void> {
- public:
-  static constexpr const char kWaitReason[] = "NotificationFuture";
-
-  NotificationFuture(NotificationFuture&& other) noexcept
-      : ListableFutureWithWaker(kMovedFrom),
-        async_void_(std::exchange(other.async_void_, nullptr)) {
-    ListableFutureWithWaker::MoveFrom(other);
-  }
-
-  NotificationFuture& operator=(NotificationFuture&& other) noexcept {
-    async_void_ = std::exchange(other.async_void_, nullptr);
-    ListableFutureWithWaker::MoveFrom(other);
-    return *this;
-  }
-
-  pw::async2::Poll<> DoPend(pw::async2::Context&) {
-    PW_ASSERT(async_void_ != nullptr);
-    std::lock_guard guard(lock());
-
-    if (!async_void_->completed_) {
-      return pw::async2::Pending();
-    }
-
-    return pw::async2::Ready();
-  }
-
- private:
-  friend class AsyncNotification;
-  friend class ListableFutureWithWaker<NotificationFuture, void>;
-
-  NotificationFuture(AsyncNotification& async_void,
-                     ListFutureProvider<NotificationFuture>& provider)
-      : ListableFutureWithWaker(provider), async_void_(&async_void) {}
-
-  AsyncNotification* async_void_;
-};
-
-NotificationFuture AsyncNotification::Wait() {
-  return NotificationFuture(*this, list_provider_);
-}
-
-void AsyncNotification::ResolveAllFutures() {
-  while (!list_provider_.empty()) {
-    NotificationFuture& future = list_provider_.Pop();
-    future.Wake();
-  }
-}
-
-static_assert(!pw::async2::experimental::is_future_v<int>);
-static_assert(pw::async2::experimental::is_future_v<SimpleIntFuture>);
-static_assert(pw::async2::experimental::is_future_v<NotificationFuture>);
-
-TEST(Future, Pend) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
-
-  SimpleIntFuture future = provider.Get();
-  int result = -1;
-
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future.Pend(cx));
-        result = value;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future.Pend(cx));
+    EXPECT_EQ(value, 42);
+    return Ready();
+  });
 
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
-  provider.Set(27);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_EQ(result, 27);
+  provider.Set(42);
+  dispatcher.RunToCompletion();
+
+  EXPECT_TRUE(future.core().is_complete());
+  EXPECT_FALSE(future.core().is_pendable());
 }
 
-TEST(Future, VoidFuture) {
-  pw::async2::Dispatcher dispatcher;
-  AsyncNotification notification;
+TEST(FutureCore, PendReady) {
+  DispatcherForTest dispatcher;
+  TestAsyncInt provider;
 
-  NotificationFuture future = notification.Wait();
-  bool completed = false;
+  TestIntFuture future = provider.SetAndGet(65535);
+  EXPECT_TRUE(future.core().is_pendable());
+  EXPECT_TRUE(future.core().is_ready());
+  EXPECT_FALSE(future.core().is_complete());
 
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY(future.Pend(cx));
-        completed = true;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future.Pend(cx));
+    EXPECT_EQ(value, 65535);
+    return Ready();
+  });
 
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
-  EXPECT_FALSE(completed);
+  dispatcher.RunToCompletion();
 
-  notification.Notify();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_TRUE(completed);
+  EXPECT_TRUE(future.core().is_complete());
+  EXPECT_FALSE(future.core().is_pendable());
 }
 
-TEST(Future, MoveAssign) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
+TEST(FutureCore, MoveAssign) {
+  DispatcherForTest dispatcher;
+  TestAsyncInt provider;
 
-  SimpleIntFuture future1 = provider.Get();
+  TestIntFuture future1 = provider.Get();
+  TestIntFuture future2 = provider.Get();
 
-  SimpleIntFuture future2 = provider.Get();
   future1 = std::move(future2);
 
   int result = -1;
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future1.Pend(cx));
-        result = value;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future1.Pend(cx));
+    result = value;
+    return Ready();
+  });
 
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
-  provider.Set(99);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_EQ(result, 99);
+  provider.Set(100);
+  dispatcher.RunToCompletion();
+  EXPECT_EQ(result, 100);
 }
 
-TEST(Future, MoveConstruct) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
+TEST(FutureCore, MoveConstruct) {
+  DispatcherForTest dispatcher;
+  TestAsyncInt provider;
 
-  SimpleIntFuture future1 = provider.Get();
-  SimpleIntFuture future2(std::move(future1));
+  TestIntFuture future1 = provider.Get();
+  TestIntFuture future2(std::move(future1));
 
   int result = -1;
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future2.Pend(cx));
-        result = value;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future2.Pend(cx));
+    result = value;
+    return Ready();
+  });
 
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
-  provider.Set(99);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_EQ(result, 99);
+  provider.Set(101);
+  dispatcher.RunToCompletion();
+  EXPECT_EQ(result, 101);
 }
 
-TEST(Future, DestroyBeforeCompletion) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
+TEST(FutureCore, MultipleFutures) {
+  DispatcherForTest dispatcher;
+  TestAsyncInt provider;
 
-  {
-    [[maybe_unused]] SimpleIntFuture future = provider.Get();
-  }
-
-  // The provider should not crash by waking a nonexistent future.
-  provider.Set(99);
-}
-
-TEST(ListFutureProvider, MultipleFutures) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
-
-  SimpleIntFuture future1 = provider.Get();
-  SimpleIntFuture future2 = provider.Get();
+  TestIntFuture future1 = provider.Get();
+  TestIntFuture future2 = provider.Get();
   int result1 = -1;
   int result2 = -1;
 
-  pw::async2::PendFuncTask task1(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future1.Pend(cx));
-        result1 = value;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task1([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future1.Pend(cx));
+    result1 = value;
+    return Ready();
+  });
 
-  pw::async2::PendFuncTask task2(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future2.Pend(cx));
-        result2 = value;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task2([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future2.Pend(cx));
+    result2 = value;
+    return Ready();
+  });
 
   dispatcher.Post(task1);
   dispatcher.Post(task2);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
-  provider.Set(33);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_EQ(result1, 33);
-  EXPECT_EQ(result2, 33);
+  provider.Set(77);
+  dispatcher.RunToCompletion();
+  EXPECT_EQ(result1, 77);
+  EXPECT_EQ(result2, 77);
 }
 
-TEST(SingleFutureProvider, VendsAndResolvesFuture) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
+TEST(FutureCore, RelistsItselfOnPending) {
+  DispatcherForTest dispatcher;
+  TestAsyncInt provider;
 
-  std::optional<SimpleIntFuture> future = provider.GetSingle();
-
-  ASSERT_TRUE(future.has_value());
+  TestIntFuture future = provider.Get();
 
   int result = -1;
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future->Pend(cx));
-        result = value;
-        return pw::async2::Ready();
-      });
+  PendFuncTask task([&](Context& cx) -> Poll<> {
+    PW_TRY_READY_ASSIGN(int value, future.Pend(cx));
+    result = value;
+    return Ready();
+  });
 
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
-
-  provider.Set(96);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_EQ(result, 96);
-}
-
-TEST(SingleFutureProvider, OnlyAllowsOneFutureToExist) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
-
-  {
-    std::optional<SimpleIntFuture> future1 = provider.GetSingle();
-    std::optional<SimpleIntFuture> future2 = provider.GetSingle();
-    EXPECT_TRUE(future1.has_value());
-    EXPECT_FALSE(future2.has_value());
-  }
-
-  // `future1` went out of scope, so we should be allowed to get a new one.
-  std::optional<SimpleIntFuture> future = provider.GetSingle();
-  ASSERT_TRUE(future.has_value());
-
-  int result = -1;
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future->Pend(cx));
-        result = value;
-        return pw::async2::Ready();
-      });
-
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
-
-  provider.Set(93);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
-  EXPECT_EQ(result, 93);
-
-  // The operation has resolved, so a new future should be obtainable.
-  std::optional<SimpleIntFuture> new_future = provider.GetSingle();
-  ASSERT_TRUE(new_future.has_value());
-}
-
-TEST(ListableFutureWithWaker, RelistsItselfOnPending) {
-  pw::async2::Dispatcher dispatcher;
-  SimpleAsyncInt provider;
-
-  std::optional<SimpleIntFuture> future = provider.GetSingle();
-  ASSERT_TRUE(future.has_value());
-
-  int result = -1;
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) -> pw::async2::Poll<> {
-        PW_TRY_READY_ASSIGN(int value, future->Pend(cx));
-        result = value;
-        return pw::async2::Ready();
-      });
-
-  dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
   EXPECT_EQ(dispatcher.tasks_polled(), 1u);
 
-  // ResolveAllFutures pops the future off the list. Since no value is set,
-  // the task will still be pending. The future should re-add itself to the list
-  // to prevent the task from being permanently stalled.
-  provider.ResolveAllFutures();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Pending());
-  EXPECT_EQ(dispatcher.tasks_polled(), 2u);  // Task ran again.
+  // Spuriously wake the futures.
+  provider.WakeAllFuturesWithoutSettingValue();
 
-  provider.Set(99);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), pw::async2::Ready());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
+  EXPECT_EQ(dispatcher.tasks_polled(), 2u);
+
+  provider.Set(88);
+  dispatcher.RunToCompletion();
   EXPECT_EQ(dispatcher.tasks_polled(), 3u);
-  EXPECT_EQ(result, 99);
+  EXPECT_EQ(result, 88);
 }
 
-#if PW_NC_TEST(FutureWaitReasonMustBeCharArray)
-PW_NC_EXPECT("kWaitReason must be a character array");
-class BadFuture : public ListableFutureWithWaker<BadFuture, int> {
- public:
-  BadFuture() : ListableFutureWithWaker(kMovedFrom) {}
-  static constexpr const char* kWaitReason = "this is a char* not an array";
-  pw::async2::Poll<int> DoPend(pw::async2::Context&) { return 5; }
-};
+TEST(FutureCore, Unlist) {
+  pw::async2::BaseFutureList list;
+  pw::async2::FutureCore core(pw::async2::FutureState::kPending);
+  list.Push(core);
+  EXPECT_TRUE(core.in_list());
 
-void ShouldAssert() {
-  BadFuture future;
-  pw::async2::PendFuncTask task(
-      [&](pw::async2::Context& cx) { return future.Pend(cx).Readiness(); });
+  core.Unlist();
+  EXPECT_FALSE(core.in_list());
+  EXPECT_TRUE(core.is_initialized());
+  EXPECT_TRUE(list.empty());
 }
-#endif  // PW_NC_TEST
+
+TEST(FutureCore, Reset) {
+  pw::async2::BaseFutureList list;
+  pw::async2::FutureCore core(pw::async2::FutureState::kPending);
+
+  list.Push(core);
+  EXPECT_TRUE(core.in_list());
+
+  core.Reset();
+  EXPECT_FALSE(core.in_list());
+  EXPECT_FALSE(core.is_initialized());
+  EXPECT_TRUE(list.empty());
+}
+
+TEST(FutureCore, WakeAndMarkReady) {
+  pw::async2::FutureCore core(pw::async2::FutureState::kPending);
+  EXPECT_FALSE(core.is_ready());
+
+  core.WakeAndMarkReady();
+  EXPECT_TRUE(core.is_ready());
+  EXPECT_TRUE(core.is_pendable());
+}
+
+TEST(FutureState, DefaultConstruction) {
+  pw::async2::FutureState state;
+  EXPECT_FALSE(state.is_initialized());
+  EXPECT_FALSE(state.is_pendable());
+  EXPECT_FALSE(state.is_ready());
+  EXPECT_FALSE(state.is_complete());
+}
+
+TEST(FutureState, PendingConstruction) {
+  pw::async2::FutureState state(pw::async2::FutureState::kPending);
+  EXPECT_TRUE(state.is_initialized());
+  EXPECT_TRUE(state.is_pendable());
+  EXPECT_FALSE(state.is_ready());
+  EXPECT_FALSE(state.is_complete());
+}
+
+TEST(FutureState, ReadyForCompletionConstruction) {
+  pw::async2::FutureState state(pw::async2::FutureState::kReadyForCompletion);
+  EXPECT_TRUE(state.is_initialized());
+  EXPECT_TRUE(state.is_pendable());
+  EXPECT_TRUE(state.is_ready());
+  EXPECT_FALSE(state.is_complete());
+}
+
+TEST(FutureState, MarkReady) {
+  pw::async2::FutureState state(pw::async2::FutureState::kPending);
+  state.MarkReady();
+  EXPECT_TRUE(state.is_ready());
+  EXPECT_TRUE(state.is_pendable());
+  EXPECT_FALSE(state.is_complete());
+}
+
+TEST(FutureState, MarkComplete) {
+  pw::async2::FutureState state(pw::async2::FutureState::kPending);
+  state.MarkComplete();
+  EXPECT_TRUE(state.is_complete());
+  EXPECT_FALSE(state.is_pendable());
+  EXPECT_FALSE(state.is_ready());
+}
+
+TEST(FutureState, MarkCompleteFromReady) {
+  pw::async2::FutureState state(pw::async2::FutureState::kReadyForCompletion);
+  state.MarkComplete();
+  EXPECT_TRUE(state.is_complete());
+  EXPECT_FALSE(state.is_pendable());
+  EXPECT_FALSE(state.is_ready());
+}
+
+TEST(FutureState, Equality) {
+  pw::async2::FutureState s1;
+  pw::async2::FutureState s2;
+  EXPECT_EQ(s1, s2);
+
+  pw::async2::FutureState p1(pw::async2::FutureState::kPending);
+  pw::async2::FutureState p2(pw::async2::FutureState::kPending);
+  EXPECT_EQ(p1, p2);
+  EXPECT_NE(s1, p1);
+
+  pw::async2::FutureState r1(pw::async2::FutureState::kReadyForCompletion);
+  pw::async2::FutureState r2(pw::async2::FutureState::kReadyForCompletion);
+  EXPECT_EQ(r1, r2);
+  EXPECT_NE(p1, r1);
+
+  p1.MarkComplete();
+  r1.MarkComplete();
+  EXPECT_EQ(p1, r1);
+}
+
+TEST(FutureState, Move) {
+  pw::async2::FutureState s1(pw::async2::FutureState::kPending);
+  pw::async2::FutureState s2 = std::move(s1);
+
+  EXPECT_FALSE(s1.is_initialized());  // NOLINT(bugprone-use-after-move)
+  EXPECT_TRUE(s2.is_initialized());
+  EXPECT_TRUE(s2.is_pendable());
+}
+
+TEST(FutureState, MoveAssignment) {
+  pw::async2::FutureState s1(pw::async2::FutureState::kPending);
+  pw::async2::FutureState s2;
+  s2 = std::move(s1);
+
+  EXPECT_FALSE(s1.is_initialized());  // NOLINT(bugprone-use-after-move)
+  EXPECT_TRUE(s2.is_initialized());
+  EXPECT_TRUE(s2.is_pendable());
+}
 
 }  // namespace

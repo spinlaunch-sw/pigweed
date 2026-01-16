@@ -14,13 +14,12 @@
 #pragma once
 
 #include "pw_async2/dispatcher.h"
-#include "pw_async2/dispatcher_base.h"
 #include "pw_function/function.h"
 #include "pw_sync/mutex.h"
 
 namespace pw::async2 {
 
-/// @submodule{pw_async2,pendables}
+/// @submodule{pw_async2,deprecated}
 
 // A lock guarding OnceReceiver and OnceSender member variables.
 //
@@ -113,7 +112,7 @@ class OnceSender final {
   ~OnceSender() {
     std::lock_guard lock(sender_receiver_lock());
     if (receiver_) {
-      std::move(receiver_->waker_).Wake();
+      receiver_->waker_.Wake();
       receiver_->sender_ = nullptr;
     }
   }
@@ -137,7 +136,7 @@ class OnceSender final {
     std::lock_guard lock(sender_receiver_lock());
     if (receiver_) {
       receiver_->value_.emplace(std::forward<Args>(args)...);
-      std::move(receiver_->waker_).Wake();
+      receiver_->waker_.Wake();
       receiver_->sender_ = nullptr;
       receiver_ = nullptr;
     }
@@ -275,7 +274,7 @@ class OnceRefSender final {
     std::lock_guard lock(sender_receiver_lock());
     if (receiver_) {
       receiver_->sender_ = nullptr;
-      std::move(receiver_->waker_).Wake();
+      receiver_->waker_.Wake();
     }
   }
 
@@ -297,7 +296,7 @@ class OnceRefSender final {
     std::lock_guard lock(sender_receiver_lock());
     if (receiver_) {
       *(receiver_->value_) = value;
-      std::move(receiver_->waker_).Wake();
+      receiver_->waker_.Wake();
       receiver_->sender_ = nullptr;
       receiver_->value_ = nullptr;
       receiver_ = nullptr;
@@ -309,7 +308,7 @@ class OnceRefSender final {
     std::lock_guard lock(sender_receiver_lock());
     if (receiver_) {
       *(receiver_->value_) = std::move(value);
-      std::move(receiver_->waker_).Wake();
+      receiver_->waker_.Wake();
       receiver_->sender_ = nullptr;
       receiver_->value_ = nullptr;
       receiver_ = nullptr;
@@ -333,7 +332,7 @@ class OnceRefSender final {
   void Commit() {
     std::lock_guard lock(sender_receiver_lock());
     if (receiver_) {
-      std::move(receiver_->waker_).Wake();
+      receiver_->waker_.Wake();
       receiver_->sender_ = nullptr;
       receiver_->value_ = nullptr;
       receiver_ = nullptr;
@@ -390,6 +389,6 @@ void InitializeOnceRefSenderAndReceiver(OnceRefSender<T>& sender,
   sender.receiver_ = &receiver;
 }
 
-/// @}
+/// @endsubmodule
 
 }  // namespace pw::async2

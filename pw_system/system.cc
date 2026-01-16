@@ -22,6 +22,7 @@
 #include "pw_allocator/synchronized_allocator.h"
 #include "pw_assert/check.h"
 #include "pw_async2/allocate_task.h"
+#include "pw_async2/basic_dispatcher.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_log/log.h"
 #include "pw_rpc/echo_service_pwpb.h"
@@ -83,12 +84,14 @@ void PostTaskFunctionOrCrash(Func&& func) {
   PW_CHECK(PostTaskFunction(std::forward<Func>(func)));
 }
 
-}  // namespace
-
-async2::Dispatcher& AsyncCore::dispatcher() {
-  static async2::Dispatcher dispatcher;
+async2::RunnableDispatcher& runnable_dispatcher() {
+  static async2::BasicDispatcher dispatcher;
   return dispatcher;
 }
+
+}  // namespace
+
+async2::Dispatcher& AsyncCore::dispatcher() { return runnable_dispatcher(); }
 
 Allocator& AsyncCore::allocator() {
   alignas(
@@ -134,7 +137,7 @@ void AsyncCore::Init(channel::ByteReaderWriter& io_channel) {
 
   PW_CONSTINIT static ThreadContextFor<kDispatcherThread> dispatcher_thread;
   Thread(dispatcher_thread, [] {
-    System().dispatcher().RunToCompletion();
+    runnable_dispatcher().RunForever();
   }).detach();
 
   PW_CONSTINIT static ThreadContextFor<kWorkQueueThread> work_queue_thread;

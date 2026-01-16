@@ -13,4 +13,5 @@
 // the License.
 #![no_std]
 
+mod stack;
 mod sync;

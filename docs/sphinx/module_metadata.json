@@ -3,14 +3,14 @@
     "tagline": "Natural object alignment, guaranteed",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_allocator": {
     "tagline": "Flexible, safe, and measurable memory allocation",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ],
     "size": "400 to 1800 bytes"
   },
@@ -76,16 +76,10 @@
   },
   "pw_async2": {
     "tagline": "Cooperative async tasks for embedded",
-    "status": "experimental",
+    "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
-  },
-  "pw_async2_basic": {
-    "status": "unstable"
-  },
-  "pw_async2_epoll": {
-    "status": "unstable"
   },
   "pw_async_basic": {
     "status": "unstable"
@@ -155,7 +149,7 @@
     "tagline": "Lightweight proxy for augmenting Bluetooth functionality",
     "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_bluetooth_sapphire": {
@@ -163,7 +157,7 @@
     "status": "unstable",
     "size": "500 to 700 kB",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_boot": {
@@ -195,7 +189,7 @@
     "tagline": "Utilities for using Pigweed in Android platform",
     "status": "stable",
     "languages": [
-      "C++20"
+      "C++"
     ]
   },
   "pw_build_info": {
@@ -233,7 +227,7 @@
   },
   "pw_channel": {
     "tagline": "Async, zero-copy API for sending and receiving bytes or datagrams",
-    "status": "experimental",
+    "status": "deprecated",
     "languages": [
       "C++"
     ]
@@ -293,14 +287,14 @@
     "tagline": "Clock tree management for embedded devices",
     "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_clock_tree_mcuxpresso": {
     "tagline": "NXP MCUXpresso SDK implementation for pw_clock_tree",
     "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_compilation_testing": {
@@ -322,7 +316,7 @@
     "status": "stable",
     "size": "200 to 3300 bytes",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_cpu_exception": {
@@ -348,7 +342,7 @@
     "tagline": "Digital I/O interface for Linux userspace",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_digital_io_mcuxpresso": {
@@ -376,7 +370,7 @@
     "tagline": "DMA helpers for MCUXpresso SDK",
     "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_docgen": {
@@ -393,7 +387,7 @@
     "tagline": "ELF file support",
     "status": "experimental",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_emu": {
@@ -429,23 +423,21 @@
     "tagline": "Embedded-friendly std::function",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_fuzzer": {
     "tagline": "Better C++ code through easier fuzzing",
     "status": "unstable",
     "languages": [
-      "C++17",
-      "C++20"
+      "C++"
     ]
   },
   "pw_grpc": {
     "tagline": "pw_rpc over gRPC",
     "status": "unstable",
     "languages": [
-      "C++17",
-      "C++20"
+      "C++"
     ]
   },
   "pw_hdlc": {
@@ -454,7 +446,7 @@
     "size": "1400 to 2600 bytes",
     "languages": [
       "Python",
-      "C++17",
+      "C++",
       "TypeScript"
     ]
   },
@@ -462,35 +454,35 @@
     "tagline": "Handy hexdump utilities",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_i2c": {
     "tagline": "Cross-platform I2C API with interactive debugging",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_i2c_linux": {
     "tagline": "Linux userspace implementation for pw_i2c",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_i2c_mcuxpresso": {
     "tagline": "NXP MCUXpresso SDK implementation for pw_i2c",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_i2c_rp2040": {
     "tagline": "Raspberry Pi Pico SDK implementation for pw_i2c",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_i2c_zephyr": {
@@ -527,7 +519,7 @@
     "tagline": "Simple, efficient C++ JSON serialization",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_kernel": {
@@ -543,7 +535,7 @@
     "status": "stable",
     "size": "~12 kB",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_libc": {
@@ -609,6 +601,13 @@
   "pw_malloc_freertos": {
     "status": "stable"
   },
+  "pw_memory": {
+    "tagline": "Memory utilities",
+    "status": "stable",
+    "languages": [
+      "C++"
+    ]
+  },
   "pw_metric": {
     "status": "stable"
   },
@@ -619,7 +618,7 @@
     "tagline": "A buffer API optimized for zero-copy messaging",
     "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_multisink": {
@@ -639,7 +638,7 @@
     "tagline": "Micro-benchmarks that are easy to write and run",
     "status": "unstable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_persistent_ram": {
@@ -685,7 +684,7 @@
     "tagline": "Error propagation primitives: value-or-error",
     "status": "stable",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_ring_buffer": {
@@ -720,7 +719,7 @@
     "status": "experimental",
     "languages": [
       "Python",
-      "C++17"
+      "C++"
     ]
   },
   "pw_snapshot": {
@@ -731,15 +730,14 @@
     "status": "experimental",
     "languages": [
       "Python",
-      "C++17"
+      "C++"
     ]
   },
   "pw_span": {
     "tagline": "std::span for C++17",
     "status": "stable",
     "languages": [
-      "C++17",
-      "C++20"
+      "C++"
     ]
   },
   "pw_spi": {
@@ -749,8 +747,7 @@
     "tagline": "SPI interface for Linux userspace",
     "status": "unstable",
     "languages": [
-      "C++17",
-      "C++20"
+      "C++"
     ]
   },
   "pw_spi_mcuxpresso": {
@@ -767,7 +764,7 @@
     "tagline": "Exception-free error propagation for embedded",
     "status": "stable",
     "languages": [
-      "C++17",
+      "C++",
       "C",
       "Python",
       "Java",
@@ -800,7 +797,7 @@
     "status": "stable",
     "size": "500 to 1500 bytes",
     "languages": [
-      "C++17"
+      "C++"
     ]
   },
   "pw_symbolizer": {
@@ -902,8 +899,8 @@
     "status": "stable",
     "size": "50% reduction in log size",
     "languages": [
+      "C",
       "C++",
-      "C11",
       "Python",
       "Rust",
       "TypeScript",

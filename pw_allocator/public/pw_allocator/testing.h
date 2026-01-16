@@ -67,10 +67,11 @@ void FreeAll(typename BlockType::Range range) {
 /// An `AllocatorForTest` that is automatically initialized on construction.
 template <size_t kBufferSize,
           typename BlockType_ = FirstFitBlock<uint32_t>,
-          typename MetricsType = internal::AllMetrics>
+          typename MetricsType_ = internal::AllMetrics>
 class AllocatorForTest : public Allocator {
  public:
   using BlockType = BlockType_;
+  using MetricsType = MetricsType_;
   using AllocatorType = FirstFitAllocator<BlockType>;
 
   // Since the unbderlying first-fit allocator uses an intrusive free list, all
@@ -78,7 +79,9 @@ class AllocatorForTest : public Allocator {
   static constexpr size_t kMinSize = BlockType::kAlignment;
 
   AllocatorForTest()
-      : Allocator(AllocatorType::kCapabilities), tracker_(kToken, *allocator_) {
+      : Allocator(AllocatorType::kCapabilities),
+        allocator_(),
+        tracker_(kToken, *allocator_) {
     ResetParameters();
     allocator_->Init(allocator_.as_bytes());
   }
@@ -129,6 +132,16 @@ class AllocatorForTest : public Allocator {
 
   /// @copydoc BlockAllocator::MeasureFragmentation
   Fragmentation MeasureFragmentation() const {
+    return allocator_->MeasureFragmentation();
+  }
+
+ protected:
+  /// Returns the underlying tracking allocator.
+  TrackingAllocator<MetricsType>& GetTracker() { return tracker_; }
+
+  /// @copydoc Allocator::DoMeasureFragmentation
+  std::optional<allocator::Fragmentation> DoMeasureFragmentation()
+      const override {
     return allocator_->MeasureFragmentation();
   }
 

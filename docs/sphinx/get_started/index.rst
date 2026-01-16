@@ -102,6 +102,18 @@ Pigweed is modular: you can use as much or as little of it as you need.
 
 .. grid:: 2
 
+   .. grid-item-card:: :octicon:`code-square` Bazel quickstart
+      :link: https://cs.opensource.google/pigweed/quickstart/bazel
+      :link-type: url
+      :class-item: sales-pitch-cta-secondary
+
+      Fork our minimal, Bazel-based starter project to create a new
+      Pigweed project from scratch. The project includes a basic
+      blinky LED program that runs on Raspberry Pi Picos and can
+      be simulated on your development host.
+
+
+
    .. grid-item-card:: :octicon:`rocket` Bazel
       :link: docs-bazel-integration
       :link-type: ref
@@ -110,6 +122,14 @@ Pigweed is modular: you can use as much or as little of it as you need.
       Learn how to use Pigweed in an existing Bazel project: add Pigweed
       as a dependency, start using Pigweed modules, and set up static and
       runtime analysis.
+
+   .. grid-item-card:: :octicon:`code-square` CMake
+      :link: docs-cmake-integration
+      :link-type: ref
+      :class-item: sales-pitch-cta-secondary
+
+      Learn how to use Pigweed in an existing CMake project: add Pigweed
+      as a dependency, configure backends, and use modules.
 
    .. grid-item-card:: :octicon:`list-ordered` GitHub Actions
       :link: docs-github-actions
@@ -125,9 +145,10 @@ Pigweed is modular: you can use as much or as little of it as you need.
 
    self
    First-time setup <first_time_setup>
-   Install Bazel <install_bazel>
-   Bazel quickstart <bazel>
-   Bazel integration <bazel_integration/index>
+   Install Bazel <../build/bazel/install>
+   Bazel quickstart <../build/bazel/quickstart>
+   Bazel integration <../build/bazel/integration/index>
+   CMake integration <../build/cmake/integration/index>
    Static and runtime analysis <analysis>
    GitHub Actions <github_actions>
    Zephyr quickstart <zephyr>

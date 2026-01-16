@@ -15,6 +15,7 @@
 #include "pw_bluetooth_sapphire/peripheral.h"
 
 #include "pw_async/fake_dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_bluetooth_sapphire/internal/host/gap/fake_adapter.h"
 #include "pw_unit_test/framework.h"
@@ -63,7 +64,7 @@ class PeripheralTest : public ::testing::Test {
     EXPECT_TRUE(task.result().status().IsUnknown());
 
     dispatcher().RunUntilIdle();
-    EXPECT_TRUE(dispatcher2().RunUntilStalled().IsReady());
+    dispatcher2().RunToCompletion();
     if (!task.result().status().ok()) {
       return std::nullopt;
     }
@@ -89,11 +90,11 @@ class PeripheralTest : public ::testing::Test {
   bt::gap::testing::FakeAdapter& adapter() { return adapter_; }
 
   pw::async::test::FakeDispatcher& dispatcher() { return async_dispatcher_; }
-  pw::async2::Dispatcher& dispatcher2() { return async2_dispatcher_; }
+  pw::async2::RunnableDispatcher& dispatcher2() { return async2_dispatcher_; }
 
  private:
   pw::async::test::FakeDispatcher async_dispatcher_;
-  pw::async2::Dispatcher async2_dispatcher_;
+  pw::async2::DispatcherForTest async2_dispatcher_;
   bt::gap::testing::FakeAdapter adapter_{async_dispatcher_};
   pw::bluetooth_sapphire::Peripheral peripheral_{adapter_.AsWeakPtr(),
                                                  async_dispatcher_};
@@ -430,12 +431,12 @@ TEST_F(PeripheralTest,
       });
   dispatcher2().Post(stop_task);
 
-  EXPECT_EQ(dispatcher2().RunUntilStalled(stop_task), pw::async2::Pending());
+  EXPECT_TRUE(dispatcher2().RunUntilStalled());
   ASSERT_EQ(adapter().fake_le()->registered_advertisements().size(), 1u);
 
   // Process the stop request.
   dispatcher().RunUntilIdle();
   // Process the waker wake.
-  EXPECT_EQ(dispatcher2().RunUntilStalled(stop_task), pw::async2::Ready());
+  dispatcher2().RunToCompletion();
   ASSERT_EQ(adapter().fake_le()->registered_advertisements().size(), 0u);
 }

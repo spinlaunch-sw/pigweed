@@ -1,119 +1,132 @@
-.. _docs-contrib-docs-changelog:
+.. _inverted pyramid: https://en.wikipedia.org/wiki/Inverted_pyramid_(journalism)
+.. _relation chain: https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#get-related-changes
+
+.. _contrib-changelog:
 
 =================
 Changelog updates
 =================
-This page describes how to write a bi-weekly :ref:`changelog <docs-changelog>`
-update.
+This page shows upstream Pigweed maintainers how to :ref:`update the Pigweed
+changelog <contrib-changelog-quickstart>` and :ref:`understand the changelog
+automation <contrib-changelog-impl>`.
 
-The :ref:`docs-contrib-docs-changelog-appendix` contains some general
-information about how Pigweed approaches changelogs.
+.. _contrib-changelog-quickstart:
 
-.. _docs-contrib-docs-changelog-timeline:
+----------
+Quickstart
+----------
+#. Get a `Gemini API key <https://ai.google.dev/gemini-api/docs/api-key>`_.
 
---------
-Timeline
---------
-#. You should start working on the update on the Thursday before Pigweed Live.
-   The Pigweed Live schedule is listed in
-   :cs:`pw_docgen/py/pw_docgen/sphinx/pigweed_live.py`.
-   Follow the :ref:`docs-contrib-docs-changelog-instructions`.
+   .. note::
 
-#. You should have a rough draft pushed up to Gerrit and ready for review by
-   noon on Friday.
+      Googlers should follow their team's process for getting an API key.
 
-#. The update must be published before Pigweed Live.
+#. Export ``GEMINI_API_KEY`` as an OS environment variable.
 
-.. _docs-contrib-docs-changelog-instructions:
+#. Run the changelog automation:
 
-------------
-Instructions
-------------
-#. Use the :ref:`changelog tool <docs-contrib-docs-changelog-tool>` to kickstart
-   your rough draft.
+   .. code-block:: console
 
-   This tool grabs all the commits between the start and end dates that you
-   specify, organizes them, and then outputs reStructuredText (reST).
+      ./pw changelog --year=<YYYY> --month=<MM>
 
-#. Copy-paste the reST into ``//docs/sphinx/changelog.rst``. The new text should go
-   right below the line that says ``.. _docs-changelog-latest:``.
+   Replace ``<YYYY>`` with a valid year and ``<MM>`` with a valid month.
 
-#. Go to the last bi-weekly update (the one that was at the top before you added
-   your new text) and delete the line that contains
-   ``.. changelog_highlights_start`` and also the line that contains
-   ``.. changelog_highlights_end``.
+   This step should take 5-10 minutes to complete.
 
-   These comments are how the :ref:`docs-root-changelog` section on
-   the homepage (``https://pigweed.dev``) is populated.
+#. Before changing any content, push the generated content to Gerrit as-is so
+   that we have a record of it.
 
-#. Review each section of the new text:
+#. Edit the content:
 
-   * Review each commit. You just need to get a sense of whether there were
-     any notable customer-facing updates; you don't need to understand every
-     detail of the changes.
+   * Review the stories that are commented out. Verify that they are
+     uninteresting and low-impact. Delete the comments in that case. Conversely,
+     if a commented story seems important, uncomment it.
 
-   * Add a short 1-paragraph summary describing notable changes such as new
-     methods or a collection of commits representing a larger body of work.
+     .. note::
 
-   * If the commits were trivial or obvious, don't add a summary.
+        We use Gemini API to guesstimate whether a story has major user-facing
+        impact or not. The commented-out stories are the ones that Gemini API
+        determined to have low user-facing impact.
 
-.. tip::
+   * Remove duplicate stories.
 
-   In the commit message or the updated documentation there's usually
-   a sentence that accurately sums up the change. When you find accurate
-   summaries like this, you can use that content as your changelog description.
+     .. note::
 
-When in doubt about anything, look at ``//docs/sphinx/changelog.rst`` and follow the
-previous content.
+        Duplication happens because we group commits based on Gerrit `relation
+        chain`_ and Buganizer issue data, and this data sometimes creates
+        overlapping connections between commits.
 
-.. _docs-contrib-docs-changelog-tool:
+#. Preview the docs and verify that the new content builds and renders
+   correctly:
 
---------------
-Changelog tool
---------------
-.. raw:: html
+   .. code-block:: console
 
-   <label for="start">Start:</label>
-   <input type="text" id="start">
-   <label for="end">End:</label>
-   <input type="text" id="end">
-   <button id="generate" disabled>Generate</button>
-   <noscript>
-     It seems like you have JavaScript disabled. This tool requires JavaScript.
-   </noscript>
-   <p>
-     Status: <span id="status">Waiting for the start and end dates (YYYY-MM-DD format)</span>
-   </p>
-   <section id="output">Output will be rendered here...</section>
-   <!-- Use a relative path here so that the changelog tool also works when
-        you preview the page locally on a `file:///...` path. -->
-   <script src="../../../_static/js/changelog.js"></script>
+      bazelisk run //docs:serve
 
-.. _docs-contrib-docs-changelog-appendix:
+#. For any given story, if you're unsure whether the generated content is
+   accurate, tag a relevant code owner for review.
 
---------
-Appendix
---------
+.. _contrib-changelog-impl:
 
-.. _docs-contrib-docs-changelog-release-notes:
+-------------------------
+Automation implementation
+-------------------------
+This section provides extra context for upstream Pigweed maintainers who need
+to modify the changelog automation.
 
-Why "changelog" and not "release notes"?
-========================================
-Because Pigweed doesn't have releases.
+.. _contrib-changelog-impl-goals:
 
-.. _docs-contrib-docs-changelog-organization:
+Goals
+=====
+There are many types of changelog in the world. Here are the goals of this
+particular changelog:
 
-Why organize by module and category?
-====================================
-Why not organize by features, fixes, and breaking changes?
+* **100% automation**. We aim to automate 100% of the changelog authoring
+  process. Any teammate on the core Pigweed team should be able to run a single
+  command and get back a changelog update that's ready to publish. If the
+  changelog update process is toilsome, we're unlikely to consistently publish
+  an update every month.
 
-* Because some Pigweed customers only use a few modules. Organizing by module
-  helps them filter out all the changes that aren't relevant to them faster.
-* If we keep the changelog section heading text fairly structured, we may
-  be able to present the changelog in other interesting ways. For example,
-  it should be possible to collect every ``pw_base64`` section in the changelog
-  and then provide a changelog for only ``pw_base64`` over in the ``pw_base64``
-  docs.
-* The changelog tool is easily able to organize by module and category due to
-  how we annotate our commits. We will not be able to publish changelog updates
-  every 2 weeks if there is too much manual work involved.
+* **Comprehensive, fast, and reliable**. We need strong guarantees that every
+  commit that occurred within the specified timeframe is analyzed. You should
+  be able to finish the automation in a reasonable amount of time (15 minutes or
+  less). You should be able to fire off the automation and trust that it will
+  finish reliably.
+
+* **Stories, not commits**. Related commits should be grouped into "stories"
+  that summarize the larger body of work. E.g. if there are 6 commits related
+  to enabling IPC in ``pw_kernel``, there should be one story along the lines
+  of ``pw_kernel: Initial IPC support`` and that story should link to the 6
+  related commits.
+
+* **User-facing stories only**. If it's not relevant to a downstream project
+  that depends on Pigweed, it doesn't belong in the changelog.
+
+* **Interesting, not comprehensive**. Our readers are not interested in a
+  comprehensive digest of how Pigweed has changed over the given timeframe. For
+  that, they can read the commit log. The purpose of the changelog is to spread
+  awareness that Pigweed is continuing to evolve and to highlight the most
+  impactful larger bodies of work that are happening.
+
+* **Inverted pyramid**. Following the `inverted pyramid`_ principle from
+  journalism, the most important information (i.e. the most newsworthy stories)
+  should be shown first.
+
+.. _contrib-changelog-impl-arch:
+
+Architecture
+============
+The changelog automation is orchestrated through a Python script. Here's the
+general workflow:
+
+#. Gather all commits that occurred within the specified month.
+
+#. Group the commits into stories using Gerrit `relation chain`_ and Buganizer
+   issue data.
+
+#. Use Gemini API to draft content for each story.
+
+#. Transform the content into reStructuredText.
+
+See the ``__main__`` function in :cs:`docs/sphinx/changelog/py/__main__.py`
+for more details.

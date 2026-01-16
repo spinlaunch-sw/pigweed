@@ -29,7 +29,7 @@ bazel_dep(name = "gazelle", version = "0.40.0", repo_name = "bazel_gazelle")
 bazel_dep(name = "googletest", version = "1.16.0", repo_name = "com_google_googletest")
 bazel_dep(name = "nanopb", version = "0.4.9.1.bcr.2")
 bazel_dep(name = "mbedtls", version = "3.6.0")
-bazel_dep(name = "pico-sdk", version = "2.2.1-develop.bcr.20250915-8fcd44a1")
+bazel_dep(name = "pico-sdk", version = "2.2.2-develop.bcr.20260105-1cc19a21")
 bazel_dep(name = "picotool", version = "2.2.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 
@@ -54,20 +54,11 @@ bazel_dep(name = "rules_python", version = "1.1.0")
 bazel_dep(name = "rules_rust", version = "0.65.0")
 bazel_dep(name = "rules_shell", version = "0.4.0")
 
-bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
 bazel_dep(name = "rules_doxygen", version = "2.4.2", dev_dependency = True)
 bazel_dep(name = "rules_mypy", version = "0.38.0", dev_dependency = True)
 
 # Repository overrides
 # ====================
-
-# TODO: https://pwbug.dev/349880767 - Point this back to the upstream repo once
-# this PR is merged.
-archive_override(
-    module_name = "hedron_compile_commands",
-    strip_prefix = "bazel-compile-commands-extractor-163521345aa6366fd1ed801b989b668b5c806f69",
-    urls = ["https://github.com/chadnorvell/bazel-compile-commands-extractor/archive/163521345aa6366fd1ed801b989b668b5c806f69.tar.gz"],
-)
 
 single_version_override(
     module_name = "rules_rust",
@@ -155,7 +146,10 @@ cipd_repository = use_repo_rule("//pw_env_setup/bazel/cipd_setup:cipd_rules.bzl"
 cipd_composite_repository = use_repo_rule("//pw_env_setup/bazel/cipd_setup:cipd_rules.bzl", "cipd_composite_repository")
 
 # Fetch llvm toolchain.
-LLVM_VERSION = "git_revision:03b0f55d9c6319a851a60bb084faca0e32a38f2b"
+# ROLL: Warning: this variable is automatically updated.
+# ROLL: Last updated 2026-01-08.
+# ROLL: By https://cr-buildbucket.appspot.com/build/8693208335718132913.
+LLVM_VERSION = "git_revision:5bf5657a97d9c0efc0f18826ca9ee9db17acb514"
 
 cipd_composite_repository(
     name = "llvm_toolchain",
@@ -212,7 +206,10 @@ register_toolchains(
 # Rust toolchains
 pw_rust = use_extension("//pw_toolchain/rust:extensions.bzl", "pw_rust")
 
-RUST_VERSION = "git_revisions:fe5c95d4ae33ec9d7831921e448e2daf8264ea42,7b074fc9362a4a6a5f172dd8936a22fb25eff96b"
+# ROLL: Warning: this variable is automatically updated.
+# ROLL: Last updated 2026-01-08.
+# ROLL: By https://cr-buildbucket.appspot.com/build/8693208335718132913.
+RUST_VERSION = "git_revisions:58b270bebef86316f70174d5a1ea4eb19ef91b62,5bf5657a97d9c0efc0f18826ca9ee9db17acb514"
 
 pw_rust.toolchain(cipd_tag = RUST_VERSION)
 use_repo(pw_rust, "pw_rust_toolchains")
@@ -376,7 +373,7 @@ cipd_repository(
     name = "qemu",
     build_file = "//third_party/qemu:qemu.BUILD",
     path = "fuchsia/third_party/qemu/${platform}",
-    tag = "git_revision:aa90f1161bb17a4863e16ec2f75104cff0752d4e",
+    tag = "git_revision:1da8f3a3c53b604edfe0d55e475102640490549e",
 )
 
 # Vendored libraries
@@ -418,6 +415,13 @@ git_repository(
     # temporary point to antmicro github fork until SDK generated files
     # will be pushed to: https://pigweed.googlesource.com/pigweed/mcuxpresso-sdk
     remote = "https://github.com/antmicro/mcuxpresso-sdk.git",
+)
+
+git_repository(
+    name = "smartfusion_mss",
+    build_file = "//third_party/smartfusion_mss:smartfusion_mss.BUILD.bazel",
+    commit = "052a2ed78fa2c7a1a7cdac5e4a988b03269d2b42",
+    remote = "https://github.com/seank/smartfusion_mss",
 )
 
 # Other Pigweed-specific dependencies
@@ -532,15 +536,24 @@ node.toolchain(node_version = "20.12.1")
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm", dev_dependency = True)
 npm.npm_translate_lock(
     name = "npm",
+    data = [
+        "//:package.json",
+        "//pw_async2/codelab/webui:package.json",
+        "//pw_web:package.json",
+        "//pw_web:pnpm-workspace.yaml",
+    ],
     # Uncomment the following when pnpm lock file needs to be updated.
     # update_pnpm_lock = True,
-    pnpm_lock = "//:pnpm-lock.yaml",
+    pnpm_lock = "//pw_web:pnpm-lock.yaml",
 )
 use_repo(npm, "npm")
 
+pnpm = use_extension("@aspect_rules_js//npm:extensions.bzl", "pnpm")
+use_repo(pnpm, "pnpm")
+
 # Setup Fuchsia SDK.
 # ==================
-FUCHSIA_SDK_VERSION = "version:29.20250930.4.1"
+FUCHSIA_SDK_VERSION = "version:30.20251105.4.1"
 
 cipd_repository(
     name = "fuchsia_sdk",

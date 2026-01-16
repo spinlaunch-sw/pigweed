@@ -15,20 +15,22 @@
 #include "pw_containers/inline_async_queue.h"
 
 #include "pw_async2/context.h"
-#include "pw_async2/dispatcher.h"
+#include "pw_async2/dispatcher_for_test.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/try.h"
+#include "pw_preprocessor/compiler.h"
 #include "pw_status/status.h"
 #include "pw_unit_test/framework.h"
 
 namespace {
 
+PW_MODIFY_DIAGNOSTIC(ignored, "-Wdeprecated-declarations");
+
 using pw::async2::Context;
-using pw::async2::Dispatcher;
+using pw::async2::DispatcherForTest;
+
 using pw::async2::PendFuncTask;
-using pw::async2::Pending;
 using pw::async2::Poll;
-using pw::async2::Ready;
 
 static_assert(!std::is_constructible_v<pw::InlineAsyncQueue<int>>,
               "Cannot construct generic capacity container");
@@ -36,12 +38,12 @@ static_assert(!std::is_constructible_v<pw::InlineAsyncQueue<int>>,
 TEST(InlineAsyncQueueTest, PendHasZeroSpaceReturnsSuccessImmediately) {
   pw::InlineAsyncQueue<int, 4> queue;
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& context) -> Poll<> {
     return queue.PendHasSpace(context, 0);
   });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendHasSpaceWhenAvailableReturnsSuccessImmediately) {
@@ -49,12 +51,12 @@ TEST(InlineAsyncQueueTest, PendHasSpaceWhenAvailableReturnsSuccessImmediately) {
   queue.push(1);
   queue.push(2);
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& context) -> Poll<> {
     return queue.PendHasSpace(context, 2);
   });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendPendHasSpaceWhenFullWaitsUntilPop) {
@@ -63,18 +65,18 @@ TEST(InlineAsyncQueueTest, PendPendHasSpaceWhenFullWaitsUntilPop) {
   queue.push(2);
   queue.push(3);
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& context) -> Poll<> {
     return queue.PendHasSpace(context, 3);
   });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.pop();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.pop();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendHasSpaceWhenFullWaitsUntilClear) {
@@ -84,38 +86,38 @@ TEST(InlineAsyncQueueTest, PendHasSpaceWhenFullWaitsUntilClear) {
   queue.push(3);
   queue.push(4);
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& context) -> Poll<> {
     return queue.PendHasSpace(context, 2);
   });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.clear();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendHasSpaceOnGenericSizedReference) {
   pw::InlineAsyncQueue<int, 4> queue1;
   pw::InlineAsyncQueue<int>& queue2 = queue1;
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task([&](Context& context) -> Poll<> {
     return queue2.PendHasSpace(context, 1);
   });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendHasSpaceWaitsAfterReadyUntilPush) {
   pw::InlineAsyncQueue<int, 4> queue;
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
 
   PendFuncTask task1([&](Context& context) -> Poll<> {
     return queue.PendHasSpace(context, 1);
   });
   dispatcher.Post(task1);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 
   PendFuncTask task2([&](Context& context) -> Poll<> {
     return queue.PendHasSpace(context, 2);
@@ -124,34 +126,34 @@ TEST(InlineAsyncQueueTest, PendHasSpaceWaitsAfterReadyUntilPush) {
 
   // Even though there is room, the queue returns "Pending" until the space
   // reserved by the first task has been claimed.
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.push(1);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendNotEmptyWhenNotEmptyReturnsSuccessImmediately) {
   pw::InlineAsyncQueue<int, 4> queue;
   queue.push(1);
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task(
       [&](Context& context) -> Poll<> { return queue.PendNotEmpty(context); });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendNotEmptyWhenEmptyWaitsUntilPush) {
   pw::InlineAsyncQueue<int, 4> queue;
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task(
       [&](Context& context) -> Poll<> { return queue.PendNotEmpty(context); });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.push(1);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendNotEmptyOnGenericSizedReference) {
@@ -159,23 +161,23 @@ TEST(InlineAsyncQueueTest, PendNotEmptyOnGenericSizedReference) {
   pw::InlineAsyncQueue<int>& queue2 = queue1;
   queue2.push(1);
 
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   PendFuncTask task(
       [&](Context& context) -> Poll<> { return queue2.PendNotEmpty(context); });
   dispatcher.Post(task);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 TEST(InlineAsyncQueueTest, PendNotEmptyWaitsAfterReadyUntilPop) {
   pw::InlineAsyncQueue<int, 4> queue;
-  Dispatcher dispatcher;
+  DispatcherForTest dispatcher;
   queue.push(1);
   queue.push(2);
 
   PendFuncTask task1(
       [&](Context& context) -> Poll<> { return queue.PendNotEmpty(context); });
   dispatcher.Post(task1);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 
   PendFuncTask task2(
       [&](Context& context) -> Poll<> { return queue.PendNotEmpty(context); });
@@ -183,10 +185,10 @@ TEST(InlineAsyncQueueTest, PendNotEmptyWaitsAfterReadyUntilPop) {
 
   // Even though there is an item, the queue returns "Pending" until the item
   // reserved by the first task has been claimed.
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Pending());
+  EXPECT_TRUE(dispatcher.RunUntilStalled());
 
   queue.pop();
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 }
 
 }  // namespace

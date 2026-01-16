@@ -61,19 +61,12 @@ fn in_interrupt_handler() -> bool {
     // IPSR[8:0] is the current exception handler (or 0 if in thread mode)
     // TODO: konkers - Create register wrapper for IPSR.
     let current_exception = ipsr_register_read() & 0x1ff;
-
-    // Treat SVCall (0xb) as in thread mode as we drop the SVCall pending bit
-    // during system call execution to allow it to block and be preempted.
-    // The code that manages this is in
-    // [`crate::syscall::handle_syscall()`]
-    current_exception != 0 && current_exception != 0xb
+    current_exception != 0
 }
 
 #[allow(dead_code)]
 fn dump_int_pri() {
-    info!(
-        "basepri {} primask {}",
-        cortex_m::register::basepri::read() as u8,
-        cortex_m::register::primask::read().is_active() as u8
-    );
+    let basepri = cortex_m::register::basepri::read();
+    let primask: u8 = cortex_m::register::primask::read().is_active().into();
+    info!("BASEPRI={}, PRIMASK={}", basepri as u8, primask as u8);
 }

@@ -13,6 +13,9 @@
 // the License.
 #pragma once
 
+#ifndef PW_ALLOCATOR_PUBLIC_PW_ALLOCATOR_SHARED_PTR_H_
+#define PW_ALLOCATOR_PUBLIC_PW_ALLOCATOR_SHARED_PTR_H_
+
 #include "pw_allocator/config.h"
 
 // TODO(b/402489948): Remove when portable atomics are provided by `pw_atomic`.
@@ -22,6 +25,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "pw_allocator/allocator.h"
 #include "pw_allocator/deallocator.h"
 #include "pw_allocator/internal/control_block.h"
 #include "pw_allocator/internal/managed_ptr.h"
@@ -244,6 +248,9 @@ class SharedPtr final : public ::pw::allocator::internal::ManagedPtr<T> {
   template <typename>
   friend class WeakPtr;
 
+  // Allow GenericMultiBufs to compose SharedPtr<T>.
+  friend class ::pw::multibuf::internal::GenericMultiBuf;
+
   // Allow MultiBufs to decompose SharedPtr<T>.
   template <multibuf::Property...>
   friend class BasicMultiBuf;
@@ -261,10 +268,10 @@ class SharedPtr final : public ::pw::allocator::internal::ManagedPtr<T> {
   template <typename... Args>
   static SharedPtr Create(Allocator* allocator, Args&&... args);
 
-  /// Constructs an array of `count` objects, and wraps it in a `UniquePtr`
+  /// Constructs an array of `count` objects, and wraps it in a `SharedPtr`
   ///
   /// The returned value may contain null if allocating memory for the object
-  /// fails. Callers must check for null before using the `UniquePtr`.
+  /// fails. Callers must check for null before using the `SharedPtr`.
   ///
   /// NOTE: Instances of this type are most commonly constructed using
   /// `Allocator::MakeShared`.
@@ -399,6 +406,7 @@ void SharedPtr<T>::reset() noexcept {
     Base::Resize(allocator, control_block_, sizeof(ControlBlock));
   } else {
     // No `WeakPtr`s remain, and all of the memory can be freed.
+    std::destroy_at(control_block_);
     Base::Deallocate(allocator, control_block_);
   }
 
@@ -440,3 +448,5 @@ constexpr void SharedPtr<T>::CheckArrayTypes() {
 
 // TODO(b/402489948): Remove when portable atomics are provided by `pw_atomic`.
 #endif  // PW_ALLOCATOR_HAS_ATOMICS
+
+#endif  // PW_ALLOCATOR_PUBLIC_PW_ALLOCATOR_SHARED_PTR_H_

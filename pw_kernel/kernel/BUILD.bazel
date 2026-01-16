@@ -28,12 +28,12 @@ RISCV_DEPS = [
 rust_library(
     name = "kernel",
     srcs = [
-        "interrupt.rs",
+        "interrupt_controller.rs",
         "lib.rs",
         "object.rs",
         "object/buffer.rs",
         "object/channel.rs",
-        "object/ticker.rs",
+        "object/interrupt.rs",
         "panic.rs",
         "scheduler.rs",
         "scheduler/algorithm.rs",
@@ -71,6 +71,7 @@ rust_library(
         "//pw_kernel/lib/foreign_box",
         "//pw_kernel/lib/list",
         "//pw_kernel/lib/log_if",
+        "//pw_kernel/lib/magic_values",
         "//pw_kernel/lib/memory_config",
         "//pw_kernel/lib/pw_assert",
         "//pw_kernel/lib/pw_atomic",

@@ -14,62 +14,67 @@
 
 #pragma once
 
-#include "pw_bluetooth_proxy/internal/l2cap_channel.h"
-#include "pw_bluetooth_proxy/internal/multibuf.h"
+#include "pw_bluetooth_proxy/internal/logical_transport.h"
 #include "pw_bluetooth_proxy/l2cap_channel_common.h"
 
 namespace pw::bluetooth::proxy {
 
-// While we are transitioning from channel proxies inheriting from L2capChannel
-// to them instead composing L2capChannel (https://pwbug.dev/388082771), this
-// class will continue to inherit from L2capChannel for client-facing
-// functionality we have yet to move. The end goal is all of that client-facing
-// functionality will be on ChannelProxy at which point we will not need to
-// inherit from L2capChannel.
-// Inheriting from L2capChannel::Holder provides this ChannelProxy the
-// ability to access its underlying channel.
-// TODO: https://pwbug.dev/388082771 - Switch to composing L2capChannel rather
-// than inheriting from it.
-/// ChannelProxy allows a client to write, read, and receive events from an
-/// underlying Bluetooth channel.
-class ChannelProxy : public L2capChannel, public L2capChannel::Holder {
+/// ChannelProxy is the client API for an intercepted L2CAP channel.
+class ChannelProxy {
  public:
-  explicit ChannelProxy(
-      L2capChannelManager& l2cap_channel_manager,
-      MultiBufAllocator* rx_multibuf_allocator,
-      uint16_t connection_handle,
-      AclTransportType transport,
-      uint16_t local_cid,
-      uint16_t remote_cid,
-      OptionalPayloadReceiveCallback&& payload_from_controller_fn,
-      OptionalPayloadReceiveCallback&& payload_from_host_fn,
-      ChannelEventCallback&& event_fn);
-  ~ChannelProxy() override;
+  virtual ~ChannelProxy() = default;
 
-  ChannelProxy(const ChannelProxy& other) = delete;
-  ChannelProxy& operator=(const ChannelProxy& other) = delete;
-  ChannelProxy(ChannelProxy&& other);
-  ChannelProxy& operator=(ChannelProxy&& other);
+  /// Send a payload to the remote peer.
+  ///
+  /// @param[in] payload The client payload to be sent. Payload will be
+  /// destroyed once its data has been used.
+  ///
+  /// @returns A `StatusWithMultiBuf` with one of the statuses below. If status
+  /// is not @OK then payload is also returned in `StatusWithMultiBuf`.
+  /// * @OK: Packet was successfully queued for send.
+  /// * @UNAVAILABLE: Channel could not acquire the resources to queue
+  ///   the send at this time (transient error). If an `event_fn` has been
+  ///   provided it will be called with `L2capChannelEvent::kWriteAvailable`
+  ///   when there is queue space available again.
+  /// * @INVALID_ARGUMENT: Payload is too large.
+  /// * @FAILED_PRECONDITION: Channel is not `State::kRunning`.
+  /// * @UNIMPLEMENTED: Channel does not support `Write(MultiBuf)`.
+  StatusWithMultiBuf Write(FlatConstMultiBuf&& payload) {
+    return DoWrite(std::move(payload));
+  }
 
- protected:
-  void SendEventToClient(L2capChannelEvent event);
+  /// Determine if channel is ready to accept one or more Write payloads.
+  ///
+  /// @returns
+  /// * @OK: Channel is ready to accept one or more `Write` payloads.
+  /// * @UNAVAILABLE: Channel does not yet have the resources to queue a Write
+  ///   at this time (transient error). If an `event_fn` has been provided it
+  ///   will be called with `L2capChannelEvent::kWriteAvailable` when there is
+  ///   queue space available again.
+  /// * @FAILED_PRECONDITION: Channel is not `State::kRunning`.
+  Status IsWriteAvailable() { return DoIsWriteAvailable(); }
 
-  // Handle event from underlying channel by sending event to client if an event
-  // callback was provided.
-  void HandleUnderlyingChannelEvent(L2capChannelEvent event) override;
-
-  // Stop the underlying channel with the provided event.
-  // TODO: https://pwbug.dev/388082771 - Look at if we can remove this reverse
-  // event flow to L2capChannel.
-  void StopUnderlyingChannelWithEvent(L2capChannelEvent event) {
-    if (GetUnderlyingChannel()) {
-      GetUnderlyingChannel()->StopAndSendEvent(event);
-    }
+  /// Send an L2CAP_FLOW_CONTROL_CREDIT_IND signaling packet to dispense the
+  /// remote peer additional L2CAP connection-oriented channel credits for this
+  /// channel.
+  ///
+  /// @param[in] additional_rx_credits Number of credits to dispense.
+  ///
+  /// @returns
+  /// * @OK: The packet was sent.
+  /// * @UNAVAILABLE: Send could not be queued due to lack of memory in the
+  ///   client-provided rx_multibuf_allocator (transient error).
+  /// * @FAILED_PRECONDITION: Channel is not `State::kRunning`.
+  Status SendAdditionalRxCredits(uint16_t additional_rx_credits) {
+    return DoSendAdditionalRxCredits(additional_rx_credits);
   }
 
  private:
-  // Used to notify clients of events.
-  ChannelEventCallback event_fn_;
+  virtual StatusWithMultiBuf DoWrite(FlatConstMultiBuf&& payload) = 0;
+
+  virtual Status DoIsWriteAvailable() = 0;
+
+  virtual Status DoSendAdditionalRxCredits(uint16_t additional_rx_credits) = 0;
 };
 
 }  // namespace pw::bluetooth::proxy

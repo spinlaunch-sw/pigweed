@@ -87,6 +87,7 @@ impl ExcReturn {
 /// Return Payload.
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
+#[expect(clippy::enum_variant_names)]
 #[repr(usize)]
 pub enum ExcReturnStack {
     /// Main, Non-Secure stack
@@ -135,6 +136,7 @@ pub enum ExcReturnFrameType {
 /// Return Payload.
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
+#[expect(clippy::enum_variant_names)]
 #[repr(usize)]
 pub enum ExcReturnMode {
     /// Handler, Non-Secure mode
@@ -254,20 +256,22 @@ impl KernelExceptionFrame {
 #[unsafe(no_mangle)]
 extern "C" fn pw_kernel_hard_fault(frame: *mut KernelExceptionFrame) -> *mut KernelExceptionFrame {
     let hfsr = with_exposed_provenance::<u32>(0xe000ed2c);
-    info!("HardFault (HFSR: {:08x})", unsafe { hfsr.read_volatile() }
-        as u32);
+    info!(
+        "HardFault exception triggered: HFSR={:#010x}",
+        unsafe { hfsr.read_volatile() } as u32
+    );
 
     unsafe { &*frame }.dump();
-    #[allow(clippy::empty_loop)]
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 
 #[exception(exception = "DefaultHandler")]
 #[unsafe(no_mangle)]
 extern "C" fn pw_kernel_default(frame: *mut KernelExceptionFrame) -> *mut KernelExceptionFrame {
-    info!("DefaultHandler");
+    info!("DefaultHandler exception triggered");
     unsafe { &*frame }.dump();
-    #[allow(clippy::empty_loop)]
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 
@@ -276,9 +280,9 @@ extern "C" fn pw_kernel_default(frame: *mut KernelExceptionFrame) -> *mut Kernel
 extern "C" fn pw_kernel_non_maskable_int(
     frame: *mut KernelExceptionFrame,
 ) -> *mut KernelExceptionFrame {
-    info!("NonMaskableInt");
+    info!("NonMaskableInt exception triggered");
     unsafe { &*frame }.dump();
-    #[allow(clippy::empty_loop)]
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 
@@ -289,12 +293,12 @@ extern "C" fn pw_kernel_memory_management(
 ) -> *mut KernelExceptionFrame {
     let mmfar = with_exposed_provenance::<u32>(0xe000ed34);
     info!(
-        "MemoryManagement exception at {:08x}",
+        "MemoryManagement exception triggered: address={:#010x}",
         unsafe { mmfar.read_volatile() } as u32
     );
     unsafe { &*frame }.dump();
 
-    #[allow(clippy::empty_loop)]
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 
@@ -303,18 +307,20 @@ extern "C" fn pw_kernel_memory_management(
 extern "C" fn pw_kernel_bus_fault(frame: *mut KernelExceptionFrame) -> *mut KernelExceptionFrame {
     let bfar = with_exposed_provenance::<u32>(0xe000ed38);
     info!(
-        "BusFault exception at {:08x}",
+        "BusFault exception triggered: address={:#010x}",
         unsafe { bfar.read_volatile() } as u32
     );
     unsafe { &*frame }.dump();
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 
 #[exception(exception = "UsageFault")]
 #[unsafe(no_mangle)]
 extern "C" fn pw_kernel_usage_fault(frame: *mut KernelExceptionFrame) -> *mut KernelExceptionFrame {
-    info!("UsageFault");
+    info!("UsageFault exception triggered");
     unsafe { &*frame }.dump();
+    #[expect(clippy::empty_loop)]
     loop {}
 }
 
@@ -326,8 +332,8 @@ extern "C" fn pw_kernel_usage_fault(frame: *mut KernelExceptionFrame) -> *mut Ke
 extern "C" fn pw_kernel_debug_monitor(
     frame: *mut KernelExceptionFrame,
 ) -> *mut KernelExceptionFrame {
-    info!("DebugMonitor");
+    info!("DebugMonitor exception triggered");
     unsafe { &*frame }.dump();
-    #[allow(clippy::empty_loop)]
+    #[expect(clippy::empty_loop)]
     loop {}
 }

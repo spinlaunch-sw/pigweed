@@ -31,7 +31,7 @@ It's a cooperatively scheduled "thread" which yields to the
 :cc:`Dispatcher <pw::async2::Dispatcher>` when waiting. When a ``Task``
 is able to make progress, the ``Dispatcher`` runs it again:
 
-.. literalinclude:: examples/basic.cc
+.. literalinclude:: examples/basic_manual.cc
    :language: cpp
    :linenos:
    :start-after: [pw_async2-examples-basic-manual]
@@ -40,11 +40,13 @@ is able to make progress, the ``Dispatcher`` runs it again:
 Tasks can then be run on a :cc:`Dispatcher <pw::async2::Dispatcher>`
 using the :cc:`Post() <pw::async2::Dispatcher::Post>` method:
 
-.. literalinclude:: examples/basic.cc
+.. literalinclude:: examples/basic_manual.cc
    :language: cpp
    :linenos:
    :start-after: [pw_async2-examples-basic-dispatcher]
    :end-before: [pw_async2-examples-basic-dispatcher]
+
+.. _module-pw_async2-more:
 
 ----------
 Learn more
@@ -104,13 +106,31 @@ Learn more
 
 .. grid:: 2
 
-   .. grid-item-card:: :octicon:`code-square` Backends
-      :link: module-pw_async2-backends
+   .. grid-item-card:: :octicon:`code-square` Dispatchers
+      :link: module-pw_async2-dispatcher
       :link-type: ref
       :class-item: sales-pitch-cta-secondary
 
-      You can fulfill the ``pw_async2`` interface with a Pigweed-provided
-      backend or roll your own.
+      You can use a Pigweed-provided dispatcher or roll your own.
+
+   .. grid-item-card:: :octicon:`container` Futures
+      :link: module-pw_async2-futures
+      :link-type: ref
+      :class-item: sales-pitch-cta-secondary
+
+      Futures are the basic async primitive in ``pw_async2``. Learn about
+      future ownership, lifetimes, polling, composability, and more.
+
+.. grid:: 2
+
+   .. grid-item-card:: :octicon:`inbox` Channels
+      :link: module-pw_async2-channels
+      :link-type: ref
+      :class-item: sales-pitch-cta-secondary
+
+      Channels are the primary mechanism for inter-task communication in
+      ``pw_async2``. Learn about channel creation, handles, sending and
+      receiving, lifetimes, allocation, and more.
 
    .. grid-item-card:: :octicon:`pencil` Coroutines
       :link: module-pw_async2-coro
@@ -124,11 +144,13 @@ Learn more
    :hidden:
    :maxdepth: 1
 
-   Informed poll <informed_poll>
-   codelab/docs
    quickstart
+   informed_poll
+   codelab/docs
    guides
-   backends
+   dispatcher
    code_size
    coroutines
    futures
+   channels
+   tasks

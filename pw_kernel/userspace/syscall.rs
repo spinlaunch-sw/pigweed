@@ -21,7 +21,7 @@ use syscall_user::SysCall;
 use crate::time::Instant;
 
 #[inline(always)]
-pub fn object_wait(object_handle: u32, signal_mask: Signals, deadline: Instant) -> Result<()> {
+pub fn object_wait(object_handle: u32, signal_mask: Signals, deadline: Instant) -> Result<Signals> {
     SysCall::object_wait(object_handle, signal_mask.bits(), deadline.ticks())
 }
 
@@ -32,26 +32,35 @@ pub fn channel_transact(
     recv_data: &mut [u8],
     deadline: Instant,
 ) -> Result<usize> {
-    SysCall::channel_transact(
-        object_handle,
-        send_data.as_ptr(),
-        send_data.len(),
-        recv_data.as_mut_ptr(),
-        recv_data.len(),
-        deadline.ticks(),
-    )
-    .map(|ret| ret.cast_into())
+    unsafe {
+        SysCall::channel_transact(
+            object_handle,
+            send_data.as_ptr(),
+            send_data.len(),
+            recv_data.as_mut_ptr(),
+            recv_data.len(),
+            deadline.ticks(),
+        )
+        .map(|ret| ret.cast_into())
+    }
 }
 
 #[inline(always)]
 pub fn channel_read(object_handle: u32, offset: usize, buffer: &mut [u8]) -> Result<usize> {
-    SysCall::channel_read(object_handle, offset, buffer.as_mut_ptr(), buffer.len())
-        .map(|ret| ret.cast_into())
+    unsafe {
+        SysCall::channel_read(object_handle, offset, buffer.as_mut_ptr(), buffer.len())
+            .map(|ret| ret.cast_into())
+    }
 }
 
 #[inline(always)]
 pub fn channel_respond(object_handle: u32, buffer: &[u8]) -> Result<()> {
-    SysCall::channel_respond(object_handle, buffer.as_ptr(), buffer.len())
+    unsafe { SysCall::channel_respond(object_handle, buffer.as_ptr(), buffer.len()) }
+}
+
+#[inline(always)]
+pub fn interrupt_ack(object_handle: u32, signal_mask: Signals) -> Result<()> {
+    SysCall::interrupt_ack(object_handle, signal_mask)
 }
 
 #[inline(always)]
@@ -66,5 +75,15 @@ pub fn debug_shutdown(status: Result<()>) -> Result<()> {
 
 #[inline(always)]
 pub fn debug_log(buffer: &[u8]) -> Result<()> {
-    SysCall::debug_log(buffer.as_ptr(), buffer.len())
+    unsafe { SysCall::debug_log(buffer.as_ptr(), buffer.len()) }
+}
+
+#[inline(always)]
+pub fn debug_nop() -> Result<()> {
+    SysCall::debug_nop()
+}
+
+#[inline(always)]
+pub fn debug_trigger_interrupt(irq: u32) -> Result<()> {
+    SysCall::debug_trigger_interrupt(irq)
 }

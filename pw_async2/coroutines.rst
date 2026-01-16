@@ -36,7 +36,7 @@ Define tasks
 ------------
 The following code example demonstrates basic usage:
 
-.. literalinclude:: examples/basic.cc
+.. literalinclude:: examples/basic_coro.cc
    :language: cpp
    :linenos:
    :start-after: [pw_async2-examples-basic-coro]
@@ -91,9 +91,9 @@ As with the non-coroutine case, ``pw_async2`` provides the
 :cc:`OnceSender <pw::async2::OnceSender>` and :cc:`OnceReceiver
 <pw::async2::OnceReceiver>` helpers for sending and receiving a one-time value.
 
-As :cc:`OnceReceiver <pw::async2::OnceReceiver>` satisfies the
-:ref:`module-pw_async2-guides-pendable-function` requirement, this means your
-coroutine can just ``co_await`` the receiver instance to obtain the value.
+As :cc:`OnceReceiver <pw::async2::OnceReceiver>` satisfies the ``Pend()``
+interface. This means your coroutine can just ``co_await`` the receiver instance
+to obtain the value.
 
 .. literalinclude:: examples/once_send_recv_test.cc
    :language: cpp
@@ -103,43 +103,3 @@ coroutine can just ``co_await`` the receiver instance to obtain the value.
 
 Like in the non-coroutine case, the value is wrapped as a ``Result<T>`` in case
 of error.
-
-.. _module-pw_async2-coro-passing-multiple-values:
-
-Multiple values
-===============
-To use :cc:`pw::InlineAsyncQueue` or
-:cc:`pw::InlineAsyncDeque` with ``co_await``, an
-adapter is needed that exposes a ``Pend`` that invokes the correct member
-function in the containers (either ``PendHasSpace`` or ``PendNotEmpty``).
-
-:cc:`PendableFor <pw::async2::PendableFor>` does this for you, and
-supports member functions or free functions.
-
-For sending, the producing coroutine has to wait for there to be space before
-trying to add to the queue. Here we ``co_await`` the result of
-``PendableFor<&Queue::PendHasSpace>(queue, 1)`` to wait for space for one
-element to be available.
-
-.. literalinclude:: examples/inline_async_queue_with_coro_test.cc
-   :language: cpp
-   :linenos:
-   :start-after: [pw_async2-examples-inline-async-queue-with-coro-await-space]
-   :end-before: [pw_async2-examples-inline-async-queue-with-coro-await-space]
-
-Receiving values is similar. The receiving has to wait for there to be values
-before trying to remove them from the queue.
-
-.. literalinclude:: examples/inline_async_queue_with_coro_test.cc
-   :language: cpp
-   :linenos:
-   :start-after: [pw_async2-examples-inline-async-queue-with-coro-await-values]
-   :end-before: [pw_async2-examples-inline-async-queue-with-coro-await-values]
-
-A complete example for using :cc:`pw::InlineAsyncQueue` this way can be
-found in :cs:`pw_async2/examples/inline_async_queue_with_coro_test.cc`, and you
-can try it yourself with:
-
-.. code-block:: sh
-
-   bazelisk run --config=cxx20 //pw_async2/examples:inline_async_queue_with_coro_test

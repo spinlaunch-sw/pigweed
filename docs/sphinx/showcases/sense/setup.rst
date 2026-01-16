@@ -13,8 +13,17 @@ Getting help
 ------------
 If you get stuck or confused at any point during the Sense tutorial, you're
 welcome (and encouraged!) to talk to the Pigweed team in our
-`Discord <https://discord.gg/M9NSeTA>`_ or
-`issue tracker <https://pwbug.dev>`_.
+`Discord <https://discord.gg/M9NSeTA>`_ or `issue tracker <https://pwbug.dev>`_.
+Or, drop into our monthly community meeting, Pigweed Live:
+
+.. grid:: 1
+
+   .. grid-item-card:: :octicon:`device-camera-video` Pigweed Live
+      :link: https://groups.google.com/g/pigweed
+      :link-type: url
+      :class-item: sales-pitch-cta-secondary
+
+      .. pigweed-live::
 
 .. _showcase-sense-tutorial-setup-prereqs:
 
@@ -31,11 +40,6 @@ Prepare your computer for working with Pigweed-based projects:
 ------------------------
 Set up the Sense project
 ------------------------
-Usually, we recommend trying out the tutorial with Visual Studio Code (VS Code)
-but we're currently refactoring our VS Code extension and fixing some bugs
-(e.g. :bug:`419310666`). In the short-term, we recommend trying the CLI path of
-the tutorial, not the VS Code path.
-
 .. _Visual Studio Code: https://code.visualstudio.com/Download
 .. _Pigweed extension: https://marketplace.visualstudio.com/items?itemName=pigweed.pigweed-vscode
 .. _Extensions view: https://code.visualstudio.com/docs/editor/extension-marketplace#_browse-for-extensions
@@ -72,19 +76,6 @@ the tutorial, not the VS Code path.
             you won't see the popups. That's OK; you can just skip the
             instructions for popups you didn't see.
 
-         .. admonition:: Troubleshooting
-
-            If you see a popup that says ``spawn bazel ENOENT``, try ignoring it
-            and proceeding with the rest of the tutorial. When the Bazel extension
-            for VS Code starts up, it tries to run queries right away, even though
-            the Bazel environment isn't completely ready yet. The Pigweed extension
-            for VS Code ensures that the Bazel environment sets up properly.
-
-            If the ``spawn bazel ENOENT`` popup seems like a legitimate error,
-            make sure that you have opened the correct folder i.e. directory.
-            If you're still seeing the issue after that, please
-            :ref:`ask the Pigweed team for help <showcase-sense-tutorial-setup-help>`.
-
       #. If you see the **Do you trust the authors of the files in this folder?** popup
          click **Yes, I trust the authors**.
 
@@ -94,7 +85,7 @@ the tutorial, not the VS Code path.
          if you click **No, I don't trust the authors** but you won't be able to do
          much more than that.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/trust.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/trust.png
 
       #. If you see the **Do you want to install the recommended 'Pigweed' extension
          from pigweed for this repository?** popup click **Install**.
@@ -102,25 +93,25 @@ the tutorial, not the VS Code path.
          The Pigweed extension is basically the project's heart. Lots of
          things depend on this extension being installed.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/install_pigweed_extension.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/install_pigweed_extension.png
 
       #. Open the **Extensions** pane (:kbd:`Control+Shift+X` on Linux and Windows,
          :kbd:`Command+Shift+X` on macOS), open the **Pigweed** extension, and make
-         sure that you're running version 1.9.1 or later. If not, click the **More actions** (**▼**)
+         sure that you're running version 1.9.9 or later. If not, click the **More actions** (**▼**)
          button next to **Uninstall**, then select **Install Specific Version**, and then select
          the latest version from the dropdown menu.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/install_specific_version_v1.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/install_specific_version_v1.png
 
          You should see a Pigweed icon in the **Activity Bar**. If you don't, try closing and re-opening
          VS Code.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/extension_icon_v1.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/extension_icon_v1.png
 
       #. If you see the popup that starts with **Pigweed recommends using Bazelisk to manage your
          Bazel environment** click **Default**.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/recommended_bazelisk_settings.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/recommended_bazelisk_settings.png
 
       #. If you see the popup that starts with **Buildifier was not found**,
          open the ``//.vscode/settings.json`` file **within the Sense repo**
@@ -139,7 +130,7 @@ the tutorial, not the VS Code path.
             If you cloned Sense to ``~/sense``, then ``//.vscode`` would
             be located at ``~/sense/.vscode``.
 
-         .. figure:: https://storage.googleapis.com/pigweed-media/sense/buildifier_not_found.png
+         .. figure:: https://www.gstatic.com/pigweed/sense/buildifier_not_found.png
 
          .. note::
 
@@ -230,7 +221,7 @@ up manually:
    that the executable is valid. If this works, then the Pigweed extension
    has already set up Buildifier correctly and no further work is needed.
 
-   .. figure:: https://storage.googleapis.com/pigweed-media/sense/buildifier_version_v1.png
+   .. figure:: https://www.gstatic.com/pigweed/sense/buildifier_version_v1.png
 
 #. Download the latest `Buildifier
    release <https://github.com/bazelbuild/buildtools/releases>`_.

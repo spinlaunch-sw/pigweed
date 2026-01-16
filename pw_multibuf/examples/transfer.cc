@@ -18,8 +18,8 @@
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/testing.h"
 #include "pw_assert/check.h"
+#include "pw_async2/basic_dispatcher.h"
 #include "pw_async2/context.h"
-#include "pw_async2/dispatcher.h"
 #include "pw_async2/pend_func_task.h"
 #include "pw_async2/poll.h"
 #include "pw_async2/try.h"
@@ -68,7 +68,7 @@ class NetworkPacket {
       return Status::ResourceExhausted();
     }
     NetworkPacket packet(allocator);
-    if (!packet.mbuf_->TryReserveForPushBack(metadata)) {
+    if (!packet.mbuf_->TryReserveForPushBack()) {
       return Status::ResourceExhausted();
     }
     packet.mbuf_->PushBack(std::move(metadata));
@@ -97,7 +97,7 @@ class NetworkPacket {
 
   /// Add a payload to a network packet.
   [[nodiscard]] bool AddPayload(UniquePtr<std::byte[]>&& payload) {
-    if (!mbuf_->TryReserveForPushBack(payload)) {
+    if (!mbuf_->TryReserveForPushBack()) {
       return false;
     }
     mbuf_->PushBack(std::move(payload));
@@ -254,7 +254,7 @@ class Link {
   Poll<> Write(Context& context, ConstByteSpan tx_buffer) {
     if (!pending_.has_value()) {
       pending_ = tx_buffer;
-      std::move(rx_waker_).Wake();
+      rx_waker_.Wake();
     } else if (pending_->empty()) {
       pending_.reset();
       return Ready();
@@ -271,7 +271,7 @@ class Link {
     size_t len = std::min(pending_->size(), rx_buffer.size());
     std::memcpy(rx_buffer.data(), pending_->data(), len);
     pending_ = pending_->subspan(len);
-    std::move(tx_waker_).Wake();
+    tx_waker_.Wake();
     return Ready(len);
   }
 
@@ -293,7 +293,7 @@ const char* kLoremIpsum =
 TEST(LinkTest, SendAndReceiveData) {
   allocator::test::AllocatorForTest<2048> allocator;
   Link link;
-  async2::Dispatcher dispatcher;
+  async2::BasicDispatcher dispatcher;
 
   auto tx_payload =
       allocator.MakeUnique<std::byte[]>(std::strlen(kLoremIpsum) + 1);
@@ -336,6 +336,7 @@ TEST(LinkTest, SendAndReceiveData) {
   Result<NetworkPacket> rx_packet = NetworkPacket::Create(allocator);
   ASSERT_EQ(rx_packet.status(), OkStatus());
 
+  bool read_frame_header_finished = false;
   async2::PendFuncTask read_frame_header(
       [&](async2::Context& context) -> async2::Poll<> {
         while (!raw_frame_header.empty()) {
@@ -343,10 +344,12 @@ TEST(LinkTest, SendAndReceiveData) {
                               link.Read(context, raw_frame_header));
           raw_frame_header = raw_frame_header.subspan(bytes_read);
         }
+        read_frame_header_finished = true;
         return Ready();
       });
   dispatcher.Post(read_frame_header);
-  EXPECT_EQ(dispatcher.RunUntilStalled(read_frame_header), Ready());
+  dispatcher.RunUntilStalled();
+  EXPECT_TRUE(read_frame_header_finished);
 
   DemoLinkHeader frame_header = rx_frame->GetHeader();
   EXPECT_EQ(frame_header.src_addr, kLinkSrcAddr);
@@ -380,7 +383,7 @@ TEST(LinkTest, SendAndReceiveData) {
         return Ready();
       });
   dispatcher.Post(read_remaining_frame);
-  EXPECT_EQ(dispatcher.RunUntilStalled(), Ready());
+  dispatcher.RunToCompletion();
 
   rx_packet = LinkFrame::ExtractNetworkPacket(std::move(*rx_frame));
   ASSERT_EQ(rx_packet.status(), OkStatus());

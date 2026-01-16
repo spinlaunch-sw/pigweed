@@ -44,30 +44,38 @@ namespace pw::multibuf::test {
 ///                       iterators or const_iterators.
 class IteratorTest : public ::testing::Test {
  protected:
-  constexpr static uint16_t kNumLayers = 4;
-  constexpr static uint16_t kNumFragments = 4;
+  using ChunksType = internal::Chunks<DynamicDeque<internal::Entry>>;
+  using RawChunksType = internal::RawChunks<DynamicDeque<internal::Entry>>;
+  using Entry = internal::Entry;
+
+  constexpr static uint16_t kNumLayers = 3;
+  constexpr static uint16_t kNumChunks = 4;
+  constexpr static uint16_t kEntriesPerChunk =
+      Entry::kMinEntriesPerChunk - 1 + kNumLayers;
   constexpr static uint16_t kBufSize = 16;
 
   IteratorTest() : deque_mem_(), allocator_(deque_mem_), deque_(allocator_) {
-    deque_.reserve(kNumFragments * kNumLayers);
-    for (uint16_t col = 0; col < kNumFragments; ++col) {
-      for (uint16_t row = 0; row < kNumLayers; ++row) {
+    uint16_t num_entries = kNumChunks * kEntriesPerChunk;
+    deque_.reserve(num_entries);
+
+    for (uint16_t chunk = 0; chunk < kNumChunks; ++chunk) {
+      for (uint16_t i = 0; i < kEntriesPerChunk; ++i) {
         internal::Entry entry;
-        if (row == 0) {
-          entry.data = &buffer_[col * kBufSize];
+        if (i == Entry::kDataIndex) {
+          entry.data = &buffer_[chunk * kBufSize];
           for (size_t j = 0; j < kBufSize; ++j) {
             entry.data[j] = std::byte(j);
           }
-        } else if (row == 1) {
-          auto [offset, length] = kViews[row - 1][col];
+        } else if (i == Entry::kBaseViewIndex) {
+          auto [offset, length] = kViews[0][chunk];
           entry.base_view = {
               .offset = offset,
               .owned = false,
               .length = length,
               .shared = false,
           };
-        } else {
-          auto [offset, length] = kViews[row - 1][col];
+        } else if (i > Entry::kBaseViewIndex) {
+          auto [offset, length] = kViews[i - Entry::kBaseViewIndex][chunk];
           entry.view = {
               .offset = offset,
               .sealed = false,
@@ -78,10 +86,12 @@ class IteratorTest : public ::testing::Test {
         deque_.push_back(entry);
       }
     }
-    chunks_ = Chunks(deque_, kNumLayers);
+    chunks_ = ChunksType(deque_, kEntriesPerChunk);
+    raw_chunks_ = RawChunksType(deque_, kEntriesPerChunk);
   }
 
-  Chunks<DynamicDeque<internal::Entry>>& chunks() { return chunks_; }
+  ChunksType& chunks() { return chunks_; }
+  RawChunksType& raw_chunks() { return raw_chunks_; }
 
   // Fragment 0 is non-empty.
   // Fragment 1 is empty.
@@ -98,37 +108,55 @@ class IteratorTest : public ::testing::Test {
     }
   }
 
-  std::pair<internal::ByteIterator<uint16_t, false>,
-            internal::ByteIterator<uint16_t, false>>
+  constexpr static uint16_t kNumRaw = 4;
+  ByteSpan GetRaw(size_t index) {
+    switch (index) {
+      case 0:
+        return {data(0), size(0)};
+      case 1:
+        return {data(1), size(1)};
+      case 2:
+        return {data(2), size(2)};
+      case 3:
+        return {data(3), size(3)};
+      default:
+        return {};
+    }
+  }
+
+  std::pair<
+      internal::ByteIterator<uint16_t, internal::ChunkMutability::kMutable>,
+      internal::ByteIterator<uint16_t, internal::ChunkMutability::kMutable>>
   GetByteIterators() {
     return {{chunks_.begin(), 0}, {chunks_.end(), 0}};
   }
 
  private:
   static constexpr std::pair<uint16_t, uint16_t>
-      kViews[kNumLayers - 1][kNumFragments] = {
+      kViews[kNumLayers][kNumChunks] = {
           {{0, 16}, {0, 16}, {0, 16}, {0, 16}},  // layer 1
           {{2, 12}, {0, 8}, {4, 12}, {0, 16}},   // layer 2
           {{4, 8}, {0, 0}, {8, 8}, {0, 16}},     // layer 3
       };
 
-  std::byte* data(size_t col) {
-    return &buffer_[col * kBufSize] + kViews[kNumLayers - 2][col].first;
+  std::byte* data(size_t chunk) {
+    return &buffer_[chunk * kBufSize] + kViews[kNumLayers - 1][chunk].first;
   }
 
-  constexpr uint16_t size(size_t col) {
-    return kViews[kNumLayers - 2][col].second;
+  constexpr uint16_t size(size_t chunk) {
+    return kViews[kNumLayers - 1][chunk].second;
   }
 
-  std::array<std::byte, kNumFragments * kBufSize> buffer_;
+  std::array<std::byte, kNumChunks * kBufSize> buffer_;
 
   // Create a minimally sized allocator for the deque.
-  std::array<std::byte, kNumLayers * kNumFragments * sizeof(internal::Entry)>
+  std::array<std::byte, kNumChunks * kEntriesPerChunk * sizeof(internal::Entry)>
       deque_mem_;
   allocator::BumpAllocator allocator_;
   DynamicDeque<internal::Entry> deque_;
 
-  Chunks<DynamicDeque<internal::Entry>> chunks_;
+  ChunksType chunks_;
+  RawChunksType raw_chunks_;
 };
 
 }  // namespace pw::multibuf::test

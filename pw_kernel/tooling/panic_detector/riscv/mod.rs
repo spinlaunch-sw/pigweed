@@ -16,6 +16,7 @@
 //
 //! Based on the RISC-V specification. See
 //! https://github.com/riscv/riscv-isa-manual/ for more information.
+
 pub mod call_graph;
 mod compression;
 mod elf_mem;
